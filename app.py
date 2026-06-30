@@ -23,6 +23,8 @@ TWILIO_FROM   = os.environ.get('TWILIO_FROM', '')
 GMAIL_USER    = os.environ.get('GMAIL_USER', '')
 GMAIL_PASS    = os.environ.get('GMAIL_PASS', '')
 GMAIL_TO      = os.environ.get('GMAIL_TO', '')
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+GEMINI_MODEL   = 'gemini-2.5-flash'
 
 # ── OTP store (in-memory — resets on server restart, fine for free tier) ──
 _otp_store = {}
@@ -198,7 +200,78 @@ def send_contact():
         print(f'❌ Email error: {e}')
         return jsonify({'success': False, 'message': str(e)})
 
+# ─────────────────────────────────────────────────────────────────────────────
+# NATURAL LANGUAGE DESTINATION SEARCH (typed or transcribed voice, 3 languages)
+# ─────────────────────────────────────────────────────────────────────────────
+@app.route('/nl-destination', methods=['POST'])
+def nl_destination():
+    try:
+        data      = request.get_json(force=True)
+        query     = (data.get('query') or '').strip()
+        buildings = data.get('buildings', [])
 
+        if not query:
+            return jsonify({'buildingId': None, 'reply': ''})
+
+        building_list_text = '\n'.join(
+            f"- id: {b.get('id')}, name: {b.get('name')}, info: {b.get('info')}"
+            for b in buildings
+        )
+
+        system_prompt = (
+            "You are a campus navigation assistant for NITK Surathkal. "
+            "The user describes where they want to go, in English, Hindi, or Kannada — "
+            "either a direct building name or a natural description "
+            "(for example 'I want to print something' should match a library or admin block). "
+            "Here is the list of available campus buildings:\n"
+            f"{building_list_text}\n\n"
+            "Reply with ONLY raw JSON, no markdown, no code fences, in this exact format:\n"
+            '{"buildingId": "<id from the list above, or null if no good match>", '
+            '"reply": "<a short, friendly one-sentence reply in the SAME language the user wrote in, '
+            'confirming the destination, or asking them to clarify if there is no good match>"}'
+        )
+
+        gemini_url = (
+            f'https://generativelanguage.googleapis.com/v1beta/models/'
+            f'{GEMINI_MODEL}:generateContent'
+        )
+
+        body = json.dumps({
+            "system_instruction": {"parts": [{"text": system_prompt}]},
+            "contents": [{"role": "user", "parts": [{"text": query}]}],
+        }).encode()
+
+        req = urllib.request.Request(
+            gemini_url,
+            data=body,
+            method='POST',
+            headers={
+                'Content-Type':   'application/json',
+                'x-goog-api-key': GEMINI_API_KEY,
+            }
+        )
+
+        with urllib.request.urlopen(req, timeout=20) as r:
+            result = json.loads(r.read().decode())
+
+        if not result.get('candidates'):
+            return jsonify({'buildingId': None, 'reply': '', 'error': 'no_candidates'})
+
+        text  = result['candidates'][0]['content']['parts'][0]['text']
+        clean = text.strip()
+        if clean.startswith('```'):
+            clean = clean.split('```')[1]
+            if clean.startswith('json'):
+                clean = clean[4:]
+        clean = clean.strip()
+
+        parsed = json.loads(clean)
+        print(f'🤖 NL query: "{query}" → {parsed}')
+        return jsonify(parsed)
+
+    except Exception as e:
+        print(f'❌ NL destination error: {e}')
+        return jsonify({'buildingId': None, 'reply': '', 'error': str(e)})
 # ─────────────────────────────────────────────────────────────────────────────
 # HEALTH CHECK
 # ─────────────────────────────────────────────────────────────────────────────
