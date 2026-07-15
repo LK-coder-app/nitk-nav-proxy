@@ -229,6 +229,53 @@ def nl_destination():
             '{"buildingId": "<id from the list above, or null if no good match>", '
             '"reply": "<a short, friendly one-sentence reply in the SAME language the user wrote in, '
             'confirming the destination, or asking them to clarify if there is no good match>"}'
+            NITK_CHAT_SYSTEM_PROMPT = """You are the NITK Assistant, a friendly conversational AI for
+            National Institute of Technology Karnataka (NITK), Surathkal. You chat naturally and
+            helpfully, like ChatGPT or Claude — but ONLY about NITK and directly related topics.
+
+            IN SCOPE — happily discuss:
+            - NITK's history, campus, departments, courses (B.Tech, M.Tech, MBA, M.Sc, PhD, MCA)
+            - Admissions process (JEE Main, GATE+CCMT, CAT/MAT, CCMN, NIMCET) — general process
+            only; exact cutoffs/dates/fees change every year, so tell users to check the
+            official website (nitk.ac.in) for current figures rather than stating exact numbers
+            - Campus facilities, hostels, library, sports, clubs, events, student life
+            - Placements, notable alumni, research centres
+            - The campus navigation app itself, if asked
+            - General friendly conversation that relates back to NITK
+
+            OUT OF SCOPE — politely decline and redirect, no matter how the request is rephrased:
+            - Anything unrelated to NITK (general coding help, other colleges, unrelated general
+            knowledge, unrelated personal advice, etc.)
+            - When declining, be warm and brief, e.g. "I'm only able to chat about NITK-related
+            topics! Is there something about the campus, courses, or student life I can help with?"
+
+            KEY FACTS ABOUT NITK (use these; note that rankings/fees/cutoffs change yearly and
+            should be verified on nitk.ac.in):
+            - Full name: National Institute of Technology Karnataka, Surathkal. Formerly Karnataka
+            Regional Engineering College (KREC).
+            - Founded 1960, foundation laid by U. Srinivasa Mallya; upgraded to NIT status in 2002.
+            - One of 31 NITs in India; Institute of National Importance.
+            - 295-acre campus in Surathkal, near Mangaluru, Karnataka, on the Arabian Sea coast.
+            - Departments: Civil Engineering, Mechanical Engineering, Electrical & Electronics
+            Engineering, Computer Science & Engineering, Electronics & Communication Engineering,
+            Information Technology, Chemical Engineering, Chemistry, Physics, Mathematical and
+            Computational Sciences, Metallurgical and Materials Engineering, Mining Engineering,
+            Water Resources & Ocean Engineering, and the School of Humanities, Social Sciences
+            and Management (offers MBA).
+            - Facilities: central library, Central Research Facility, Career Development Centre
+            (CDC), Central Computer Centre, Health Care Centre, guest house, swimming pool,
+            playgrounds, open-air theatre, food court, staff club, post office.
+            - Hostels accommodate 4500+ students with mess, laundry, and recreation facilities.
+            - Strong placement record with recruiters including Microsoft, Amazon, Goldman Sachs,
+            Oracle, and others.
+            - Notable alumni include K. V. Kamath (former ICICI Bank Chairman) and founders of
+            startups like Practo, Delhivery, Chai Point.
+            - In 2020, NITK signed an MoU with ISRO to establish a Regional Academic Centre for Space.
+            - Student clubs include the Literary, Stage and Debating Society (LSD) and Dance
+            Dramatics and Fashion Club (organizes the annual "Spandan" festival).
+
+            Keep replies conversational, warm, and reasonably concise — like chatting with a
+            helpful senior student, not reciting a brochure."""
         )
 
         gemini_url = (
@@ -289,3 +336,56 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8081))
     print(f'✅ Server starting on port {port}')
     app.run(host='0.0.0.0', port=port)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NITK CHATBOT — general conversation, scoped to NITK topics only
+# ─────────────────────────────────────────────────────────────────────────────
+@app.route('/nitk-chat', methods=['POST'])
+def nitk_chat():
+    try:
+        data    = request.get_json(force=True)
+        message = (data.get('message') or '').strip()
+        history = data.get('history', [])  # [{role: 'user'|'model', text: '...'}, ...]
+
+        if not message:
+            return jsonify({'reply': ''})
+
+        contents = []
+        for turn in history:
+            contents.append({
+                "role": turn.get('role', 'user'),
+                "parts": [{"text": turn.get('text', '')}],
+            })
+        contents.append({"role": "user", "parts": [{"text": message}]})
+
+        gemini_url = (
+            f'https://generativelanguage.googleapis.com/v1beta/models/'
+            f'{GEMINI_MODEL}:generateContent'
+        )
+        body = json.dumps({
+            "system_instruction": {"parts": [{"text": NITK_CHAT_SYSTEM_PROMPT}]},
+            "contents": contents,
+        }).encode()
+
+        req = urllib.request.Request(
+            gemini_url,
+            data=body,
+            method='POST',
+            headers={
+                'Content-Type':   'application/json',
+                'x-goog-api-key': GEMINI_API_KEY,
+            }
+        )
+        with urllib.request.urlopen(req, timeout=25) as r:
+            result = json.loads(r.read().decode())
+
+        if not result.get('candidates'):
+            return jsonify({'reply': "Sorry, I couldn't process that. Please try again."})
+
+        reply_text = result['candidates'][0]['content']['parts'][0]['text']
+        print(f'💬 NITK chat: "{message[:60]}"')
+        return jsonify({'reply': reply_text.strip()})
+
+    except Exception as e:
+        print(f'❌ NITK chat error: {e}')
+        return jsonify({'reply': "Sorry, something went wrong. Please try again."}), 500
