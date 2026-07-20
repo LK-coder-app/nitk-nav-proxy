@@ -8,6 +8,8 @@ import urllib.parse
 import urllib.error
 import smtplib
 from email.mime.text import MIMEText
+import firebase_admin
+from firebase_admin import credentials, auth as fb_auth
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -25,6 +27,41 @@ GMAIL_PASS     = os.environ.get('GMAIL_PASS', '')
 GMAIL_TO       = os.environ.get('GMAIL_TO', '')
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 GEMINI_MODEL   = 'gemini-2.5-flash'
+
+# ── Firebase Admin SDK — needed for OTP-based login and password reset ────
+FIREBASE_SERVICE_ACCOUNT_JSON = os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON', '')
+
+if FIREBASE_SERVICE_ACCOUNT_JSON:
+    try:
+        _service_account_info = json.loads(FIREBASE_SERVICE_ACCOUNT_JSON)
+        _cred = credentials.Certificate(_service_account_info)
+        firebase_admin.initialize_app(_cred)
+        print('✅ Firebase Admin initialized')
+    except Exception as e:
+        print(f'❌ Firebase Admin init failed: {e}')
+else:
+    print('⚠️ FIREBASE_SERVICE_ACCOUNT_JSON not set — auth endpoints will fail')
+
+_account_otp_store = {}  # email -> {otp, expiry}
+
+
+def _send_twilio_sms(phone_e164, body_text):
+    payload = urllib.parse.urlencode({
+        'To':   phone_e164,
+        'From': TWILIO_FROM,
+        'Body': body_text,
+    }).encode()
+    twilio_url = f'https://api.twilio.com/2010-04-01/Accounts/{TWILIO_SID}/Messages.json'
+    creds_b64 = base64.b64encode(f'{TWILIO_SID}:{TWILIO_TOKEN}'.encode()).decode()
+    req = urllib.request.Request(
+        twilio_url, data=payload, method='POST',
+        headers={
+            'Authorization': f'Basic {creds_b64}',
+            'Content-Type':  'application/x-www-form-urlencoded',
+        }
+    )
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.loads(r.read().decode())
 
 # ── OTP store (in-memory — resets on server restart, fine for free tier) ──
 _otp_store = {}
@@ -378,6 +415,134 @@ def nitk_chat():
         print(f'❌ NITK chat error: {e}')
         return jsonify({'reply': "Sorry, something went wrong. Please try again."}), 500
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STORE VERIFIED PHONE — called once, right after registration
+# ─────────────────────────────────────────────────────────────────────────────
+@app.route('/set-user-phone', methods=['POST'])
+def set_user_phone():
+    try:
+        data  = request.get_json(force=True)
+        uid   = data.get('uid', '')
+        phone = data.get('phone', '')
+
+        if not uid or not phone or len(phone) != 10:
+            return jsonify({'success': False, 'message': 'Missing uid or invalid phone'})
+
+        fb_auth.update_user(uid, phone_number=f'+91{phone}')
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f'❌ set_user_phone error: {e}')
+        return jsonify({'success': False, 'message': str(e)})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SEND OTP — used for both OTP-login and password reset (same purpose: prove
+# you own the account associated with this email, via its verified phone)
+# ─────────────────────────────────────────────────────────────────────────────
+@app.route('/send-login-otp', methods=['POST'])
+def send_login_otp():
+    try:
+        data  = request.get_json(force=True)
+        email = (data.get('email') or '').strip().lower()
+        if not email:
+            return jsonify({'success': False, 'message': 'Email required'})
+
+        try:
+            user = fb_auth.get_user_by_email(email)
+        except fb_auth.UserNotFoundError:
+            return jsonify({'success': False, 'message': 'No account found with this email'})
+
+        phone = user.phone_number
+        if not phone:
+            return jsonify({'success': False,
+                            'message': 'No verified phone number on file for this account'})
+
+        otp = str(random.randint(100000, 999999))
+        _account_otp_store[email] = {'otp': otp, 'expiry': time.time() + 300}
+        print(f'📱 Account OTP for {email} ({phone}): {otp}')
+
+        masked = phone
+        if len(phone) > 7:
+            masked = phone[:3] + '•' * (len(phone) - 7) + phone[-4:]
+
+        try:
+            _send_twilio_sms(phone, f'Your NITK Navigation OTP is {otp}. Valid for 5 minutes.')
+        except Exception as e:
+            print(f'⚠️ Twilio send failed (non-fatal, OTP still valid): {e}')
+
+        return jsonify({'success': True, 'maskedPhone': masked, 'demo_otp': otp})
+
+    except Exception as e:
+        print(f'❌ send_login_otp error: {e}')
+        return jsonify({'success': False, 'message': str(e)})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VERIFY OTP → LOGIN (mints a real Firebase sign-in token)
+# ─────────────────────────────────────────────────────────────────────────────
+@app.route('/verify-login-otp', methods=['POST'])
+def verify_login_otp():
+    try:
+        data  = request.get_json(force=True)
+        email = (data.get('email') or '').strip().lower()
+        otp   = (data.get('otp') or '').strip()
+
+        record = _account_otp_store.get(email)
+        if not record:
+            return jsonify({'success': False, 'message': 'No OTP found. Please request again.'})
+        if time.time() > record['expiry']:
+            del _account_otp_store[email]
+            return jsonify({'success': False, 'message': 'OTP expired. Please request a new one.'})
+        if record['otp'] != otp:
+            return jsonify({'success': False, 'message': 'Incorrect OTP.'})
+
+        del _account_otp_store[email]
+
+        user = fb_auth.get_user_by_email(email)
+        token = fb_auth.create_custom_token(user.uid)
+        token_str = token.decode('utf-8') if isinstance(token, bytes) else token
+
+        return jsonify({'success': True, 'token': token_str})
+
+    except Exception as e:
+        print(f'❌ verify_login_otp error: {e}')
+        return jsonify({'success': False, 'message': str(e)})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VERIFY OTP → RESET PASSWORD
+# ─────────────────────────────────────────────────────────────────────────────
+@app.route('/verify-reset-otp', methods=['POST'])
+def verify_reset_otp():
+    try:
+        data         = request.get_json(force=True)
+        email        = (data.get('email') or '').strip().lower()
+        otp          = (data.get('otp') or '').strip()
+        new_password = data.get('newPassword', '')
+
+        if len(new_password) < 6:
+            return jsonify({'success': False, 'message': 'Password must be at least 6 characters'})
+
+        record = _account_otp_store.get(email)
+        if not record:
+            return jsonify({'success': False, 'message': 'No OTP found. Please request again.'})
+        if time.time() > record['expiry']:
+            del _account_otp_store[email]
+            return jsonify({'success': False, 'message': 'OTP expired. Please request a new one.'})
+        if record['otp'] != otp:
+            return jsonify({'success': False, 'message': 'Incorrect OTP.'})
+
+        del _account_otp_store[email]
+
+        user = fb_auth.get_user_by_email(email)
+        fb_auth.update_user(user.uid, password=new_password)
+
+        return jsonify({'success': True, 'message': 'Password changed successfully'})
+
+    except Exception as e:
+        print(f'❌ verify_reset_otp error: {e}')
+        return jsonify({'success': False, 'message': str(e)})
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HEALTH CHECK
