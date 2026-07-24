@@ -157,12 +157,14 @@ def _build_knowledge_base():
                 to_visit.append(link)
 
     with _knowledge_lock:
-    if new_chunks:
-        _knowledge_chunks = new_chunks
-        _knowledge_ready = True
-        print(f"✅ Stored {len(_knowledge_chunks)} chunks")
-    else:
-        print("❌ Build failed. Keeping previous knowledge base.")
+        if new_chunks:
+            _knowledge_chunks = new_chunks
+            _knowledge_ready = True
+            print(f"✅ Saved {len(_knowledge_chunks)} chunks")
+        else:
+            print("❌ No chunks generated. Keeping previous knowledge base.")
+
+    print(f"✅ Knowledge base ready — {len(new_chunks)} chunks from {len(visited)} pages")
 
 
 def _retrieve_relevant_chunks(query, top_k=5):
@@ -508,12 +510,8 @@ def knowledge_status():
 # Build the knowledge base once at startup, in the background, so it's not
 # empty for the first users. Runs under gunicorn too (module-level, not
 # inside __main__).
-if not _knowledge_ready:
-    threading.Thread(
-        target=_build_knowledge_base,
-        daemon=True
-    ).start()
-
+# Disabled automatic knowledge build
+# threading.Thread(target=_build_knowledge_base, daemon=True).start()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STORE VERIFIED PHONE — called once, right after registration
