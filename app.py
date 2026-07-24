@@ -33,7 +33,7 @@ GMAIL_TO       = os.environ.get('GMAIL_TO', '')
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 GEMINI_MODEL   = 'gemini-2.5-flash'
 # ── Auto-updating NITK knowledge base — scraped from nitk.ac.in ───────────
-NITK_BASE_URL          = 'https://nitk.ac.in'
+NITK_BASE_URL          = 'https://www.nitk.ac.in/'
 MAX_PAGES_TO_CRAWL     = 18
 KNOWLEDGE_REFRESH_KEY  = os.environ.get('KNOWLEDGE_REFRESH_KEY', 'changeme')
 
