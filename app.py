@@ -157,9 +157,12 @@ def _build_knowledge_base():
                 to_visit.append(link)
 
     with _knowledge_lock:
+    if new_chunks:
         _knowledge_chunks = new_chunks
         _knowledge_ready = True
-    print(f'✅ Knowledge base ready — {len(new_chunks)} chunks from {len(visited)} pages')
+        print(f"✅ Stored {len(_knowledge_chunks)} chunks")
+    else:
+        print("❌ Build failed. Keeping previous knowledge base.")
 
 
 def _retrieve_relevant_chunks(query, top_k=5):
@@ -495,13 +498,21 @@ def refresh_knowledge():
 @app.route('/knowledge-status')
 def knowledge_status():
     with _knowledge_lock:
-        return jsonify({'ready': _knowledge_ready, 'chunkCount': len(_knowledge_chunks)})
+        print("STATUS:", len(_knowledge_chunks), _knowledge_ready)
+        return jsonify({
+            "ready": _knowledge_ready,
+            "chunkCount": len(_knowledge_chunks)
+        })
 
 
 # Build the knowledge base once at startup, in the background, so it's not
 # empty for the first users. Runs under gunicorn too (module-level, not
 # inside __main__).
-threading.Thread(target=_build_knowledge_base, daemon=True).start()
+if not _knowledge_ready:
+    threading.Thread(
+        target=_build_knowledge_base,
+        daemon=True
+    ).start()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
