@@ -651,3 +651,34 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8081))
     print(f'✅ Server starting on port {port}')
     app.run(host='0.0.0.0', port=port)
+
+@app.route("/test-gemini")
+def test_gemini():
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+
+        body = json.dumps({
+            "contents": [
+                {
+                    "parts": [
+                        {"text": "Say hello"}
+                    ]
+                }
+            ]
+        }).encode()
+
+        req = urllib.request.Request(
+            url,
+            data=body,
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": GEMINI_API_KEY
+            }
+        )
+
+        with urllib.request.urlopen(req) as r:
+            return r.read().decode()
+
+    except Exception as e:
+        return str(e), 500
