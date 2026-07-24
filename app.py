@@ -34,14 +34,6 @@ GMAIL_TO       = os.environ.get('GMAIL_TO', '')
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 GEMINI_MODEL   = 'gemini-2.5-flash'
 # ── Auto-updating NITK knowledge base — scraped from nitk.ac.in ───────────
-NITK_BASE_URL          = 'https://www.nitk.ac.in/'
-MAX_PAGES_TO_CRAWL     = 18
-KNOWLEDGE_REFRESH_KEY  = os.environ.get('KNOWLEDGE_REFRESH_KEY', 'changeme')
-
-_knowledge_chunks = []          # [{'text':..., 'source':..., 'embedding': np.array}, ...]
-_knowledge_lock   = threading.Lock()
-_knowledge_ready  = False
-
 # ── Firebase Admin SDK — needed for OTP-based login and password reset ────
 FIREBASE_SERVICE_ACCOUNT_JSON = os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON', '')
 
@@ -78,110 +70,31 @@ def _send_twilio_sms(phone_e164, body_text):
     with urllib.request.urlopen(req, timeout=15) as r:
         return json.loads(r.read().decode())
 
-def _fetch_page(url):
+def fetch_nitk_page(url):
     try:
-        resp = requests.get(url, timeout=15, headers={
-            'User-Agent': 'Mozilla/5.0 (NITK-Nav-Assistant/1.0)'
-        })
-        if resp.status_code != 200:
-            return None, []
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'noscript']):
-            tag.decompose()
-        text = ' '.join(soup.get_text(separator=' ', strip=True).split())
+        headers = {
+            "User-Agent":
+            "Mozilla/5.0"
+        }
 
-        links = []
-        base_domain = urlparse(NITK_BASE_URL).netloc
-        for a in soup.find_all('a', href=True):
-            full_url = urljoin(url, a['href']).split('#')[0]
-            if urlparse(full_url).netloc == base_domain and full_url.startswith('http'):
-                if not any(full_url.lower().endswith(ext)
-                           for ext in ['.pdf', '.jpg', '.png', '.zip', '.doc', '.docx']):
-                    links.append(full_url)
-        return text, links
-    except Exception as e:
-        print(f'⚠️ Failed to fetch {url}: {e}')
-        return None, []
-
-
-def _chunk_text(text, source, chunk_words=180, overlap_words=40):
-    words = text.split()
-    chunks = []
-    i = 0
-    while i < len(words):
-        piece = words[i:i + chunk_words]
-        if len(piece) < 30:
-            break
-        chunks.append({'text': ' '.join(piece), 'source': source})
-        i += chunk_words - overlap_words
-    return chunks
-
-
-def _embed_text(text):
-    try:
-        response = client.models.embed_content(
-            model="gemini-embedding-001",
-            contents=text,
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=10
         )
 
-        return np.array(response.embeddings[0].values, dtype=np.float32)
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        for tag in soup(["script", "style", "nav", "footer"]):
+            tag.decompose()
+
+        text = soup.get_text(separator=" ")
+
+        return " ".join(text.split())[:25000]
 
     except Exception as e:
-        print(f"⚠️ Embedding failed: {e}")
-        return None
-
-
-def _build_knowledge_base():
-    global _knowledge_chunks, _knowledge_ready
-    print('🔄 Refreshing NITK knowledge base from nitk.ac.in ...')
-
-    visited, to_visit, new_chunks = set(), [NITK_BASE_URL], []
-
-    while to_visit and len(visited) < MAX_PAGES_TO_CRAWL:
-        url = to_visit.pop(0)
-        if url in visited:
-            continue
-        visited.add(url)
-
-        text, links = _fetch_page(url)
-        if text and len(text) > 200:
-            for chunk in _chunk_text(text, url):
-                emb = _embed_text(chunk['text'])
-                if emb is not None:
-                    chunk['embedding'] = emb
-                    new_chunks.append(chunk)
-            print(f'✅ Indexed {url}')
-
-        for link in links:
-            if link not in visited and link not in to_visit:
-                to_visit.append(link)
-
-    with _knowledge_lock:
-        if new_chunks:
-            _knowledge_chunks = new_chunks
-            _knowledge_ready = True
-            print(f"✅ Saved {len(_knowledge_chunks)} chunks")
-        else:
-            print("❌ No chunks generated. Keeping previous knowledge base.")
-
-    print(f"✅ Knowledge base ready — {len(new_chunks)} chunks from {len(visited)} pages")
-
-
-def _retrieve_relevant_chunks(query, top_k=5):
-    with _knowledge_lock:
-        snapshot = list(_knowledge_chunks)
-    if not snapshot:
-        return []
-    q_emb = _embed_text(query)
-    if q_emb is None:
-        return []
-    scored = [
-        (float(np.dot(q_emb, c['embedding']) /
-               (np.linalg.norm(q_emb) * np.linalg.norm(c['embedding']) + 1e-8)), c)
-        for c in snapshot
-    ]
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return [c for _, c in scored[:top_k]]
+        print(e)
+        return ""
 
 # ── OTP store (in-memory — resets on server restart, fine for free tier) ──
 _otp_store = {}
@@ -456,32 +369,54 @@ def nitk_chat():
         if not message:
             return jsonify({'reply': ''})
 
-        relevant = _retrieve_relevant_chunks(message, top_k=5)
-        context_text = '\n\n'.join(f"[Source: {c['source']}]\n{c['text']}" for c in relevant) \
-            if relevant else "(No specific retrieved content — be upfront if unsure of specifics.)"
+        question = message.lower()
 
-        system_prompt = f"{NITK_CHAT_BASE_PROMPT}\n\n──────────\n{context_text}\n──────────"
+        url = "https://www.nitk.ac.in/"
+
+        if "placement" in question:
+            url = "https://www.nitk.ac.in/placement"
+
+        elif "hostel" in question:
+            url = "https://www.nitk.ac.in/hostels"
+
+        elif "admission" in question:
+            url = "https://www.nitk.ac.in/admissions"
+
+        elif "library" in question:
+            url = "https://www.nitk.ac.in/library"
+
+        elif "department" in question:
+            url = "https://www.nitk.ac.in/departments"
+
+        website_text = fetch_nitk_page(url)
+
+        system_prompt = f"""
+        {NITK_CHAT_BASE_PROMPT}
+
+        You must answer ONLY using the following official NITK website information.
+
+        If the answer is not available in the information below,
+        politely say that it is unavailable on the official website.
+
+        Official Website Content:
+
+        {website_text}
+        """
 
         contents = [{"role": t.get('role', 'user'), "parts": [{"text": t.get('text', '')}]}
                     for t in history]
         contents.append({"role": "user", "parts": [{"text": message}]})
 
-        gemini_url = f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent'
-        body = json.dumps({
-            "system_instruction": {"parts": [{"text": system_prompt}]},
-            "contents": contents,
-        }).encode()
-        req = urllib.request.Request(
-            gemini_url, data=body, method='POST',
-            headers={'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY}
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=[
+                system_prompt,
+                *[t.get("text", "") for t in history],
+                message
+            ]
         )
-        with urllib.request.urlopen(req, timeout=25) as r:
-            result = json.loads(r.read().decode())
 
-        if not result.get('candidates'):
-            return jsonify({'reply': "Sorry, I couldn't process that. Please try again."})
-
-        reply_text = result['candidates'][0]['content']['parts'][0]['text']
+        reply_text = response.text
         return jsonify({'reply': reply_text.strip()})
 
     except Exception as e:
@@ -489,37 +424,10 @@ def nitk_chat():
         return jsonify({'reply': "Sorry, something went wrong. Please try again."}), 500
 
 
-@app.route('/refresh-knowledge')
-def refresh_knowledge():
-    if request.args.get('key', '') != KNOWLEDGE_REFRESH_KEY:
-        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
-
-    threading.Thread(
-        target=_build_knowledge_base,
-        daemon=True
-    ).start()
-
-    return jsonify({
-        "success": True,
-        "message": "Refresh started in background"
-    })
-
-
-@app.route('/knowledge-status')
-def knowledge_status():
-    with _knowledge_lock:
-        print("STATUS:", len(_knowledge_chunks), _knowledge_ready)
-        return jsonify({
-            "ready": _knowledge_ready,
-            "chunkCount": len(_knowledge_chunks)
-        })
-
-
 # Build the knowledge base once at startup, in the background, so it's not
 # empty for the first users. Runs under gunicorn too (module-level, not
 # inside __main__).
-# Disabled automatic knowledge build
-# threading.Thread(target=_build_knowledge_base, daemon=True).start()
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STORE VERIFIED PHONE — called once, right after registration
