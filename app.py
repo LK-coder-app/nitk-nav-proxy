@@ -493,8 +493,12 @@ def nitk_chat():
 def refresh_knowledge():
     if request.args.get('key', '') != KNOWLEDGE_REFRESH_KEY:
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
-    threading.Thread(target=_build_knowledge_base, daemon=True).start()
-    return jsonify({'success': True, 'message': 'Refresh started in background'})
+    _build_knowledge_base()
+
+    return jsonify({
+        "success": True,
+        "message": "Knowledge refreshed"
+    })
 
 
 @app.route('/knowledge-status')
