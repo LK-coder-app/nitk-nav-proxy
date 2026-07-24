@@ -16,6 +16,8 @@ from urllib.parse import urljoin, urlparse
 import numpy as np
 import threading
 from google import genai
+import re
+from urllib.parse import quote
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -69,6 +71,57 @@ def _send_twilio_sms(phone_e164, body_text):
     )
     with urllib.request.urlopen(req, timeout=15) as r:
         return json.loads(r.read().decode())
+
+def search_nitk_page(query):
+    """
+    Search the official NITK website using Google's index and
+    return the best matching NITK page.
+    """
+
+    try:
+        headers = {
+            "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        }
+
+        search_url = (
+            "https://www.google.com/search?q="
+            + quote("site:nitk.ac.in " + query)
+        )
+
+        html = requests.get(
+            search_url,
+            headers=headers,
+            timeout=10
+        ).text
+
+        # Find NITK links inside Google's response
+        links = re.findall(
+            r'https://www\.nitk\.ac\.in[^"&<> ]+',
+            html
+        )
+
+        seen = set()
+
+        for link in links:
+            if link in seen:
+                continue
+
+            seen.add(link)
+
+            if "/document/" in link:
+                continue
+
+            if ".pdf" in link.lower():
+                continue
+
+            return link
+
+        return "https://www.nitk.ac.in/"
+
+    except Exception as e:
+        print("Search Error:", e)
+        return "https://www.nitk.ac.in/"
 
 def fetch_nitk_page(url):
     try:
@@ -369,36 +422,38 @@ def nitk_chat():
         if not message:
             return jsonify({'reply': ''})
 
-        question = message.lower()
+        page_url = search_nitk_page(message)
 
-        url = "https://www.nitk.ac.in/"
+        print("Searching:", page_url)
 
-        if "placement" in question:
-            url = "https://www.nitk.ac.in/placement"
-
-        elif "hostel" in question:
-            url = "https://www.nitk.ac.in/hostels"
-
-        elif "admission" in question:
-            url = "https://www.nitk.ac.in/admissions"
-
-        elif "library" in question:
-            url = "https://www.nitk.ac.in/library"
-
-        elif "department" in question:
-            url = "https://www.nitk.ac.in/departments"
-
-        website_text = fetch_nitk_page(url)
+        website_text = fetch_nitk_page(page_url)
+        
+        print("=" * 60)
+        print("PAGE:", page_url)
+        print("Downloaded:", len(website_text), "characters")
+        print("=" * 60)
 
         system_prompt = f"""
-        {NITK_CHAT_BASE_PROMPT}
+        You are the official NITK Surathkal AI Assistant.
 
-        You must answer ONLY using the following official NITK website information.
+        Answer ONLY using the webpage content below.
 
-        If the answer is not available in the information below,
-        politely say that it is unavailable on the official website.
+        If the answer exists in the webpage,
+        answer completely.
 
-        Official Website Content:
+        Do NOT tell the user to visit the website.
+
+        If the answer truly does not exist in the webpage,
+        say:
+
+        "I couldn't find that information on the official NITK website."
+
+        Mention the webpage URL only at the end if useful.
+
+        Webpage URL:
+        {page_url}
+
+        Webpage Content:
 
         {website_text}
         """
@@ -409,11 +464,13 @@ def nitk_chat():
 
         response = client.models.generate_content(
             model=GEMINI_MODEL,
-            contents=[
-                system_prompt,
-                *[t.get("text", "") for t in history],
-                message
-            ]
+            contents=f"""
+        {system_prompt}
+
+        User Question:
+
+        {message}
+        """
         )
 
         reply_text = response.text
