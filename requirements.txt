@@ -1,4 +1,6 @@
 flask
 flask-cors
 gunicorn
-firebase-admin
+requests
+beautifulsoup4
+numpy

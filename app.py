@@ -10,6 +10,11 @@ import smtplib
 from email.mime.text import MIMEText
 import firebase_admin
 from firebase_admin import credentials, auth as fb_auth
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urlparse
+import numpy as np
+import threading
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -27,6 +32,14 @@ GMAIL_PASS     = os.environ.get('GMAIL_PASS', '')
 GMAIL_TO       = os.environ.get('GMAIL_TO', '')
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 GEMINI_MODEL   = 'gemini-2.5-flash'
+# ── Auto-updating NITK knowledge base — scraped from nitk.ac.in ───────────
+NITK_BASE_URL          = 'https://nitk.ac.in'
+MAX_PAGES_TO_CRAWL     = 18
+KNOWLEDGE_REFRESH_KEY  = os.environ.get('KNOWLEDGE_REFRESH_KEY', 'changeme')
+
+_knowledge_chunks = []          # [{'text':..., 'source':..., 'embedding': np.array}, ...]
+_knowledge_lock   = threading.Lock()
+_knowledge_ready  = False
 
 # ── Firebase Admin SDK — needed for OTP-based login and password reset ────
 FIREBASE_SERVICE_ACCOUNT_JSON = os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON', '')
@@ -63,57 +76,123 @@ def _send_twilio_sms(phone_e164, body_text):
     with urllib.request.urlopen(req, timeout=15) as r:
         return json.loads(r.read().decode())
 
+def _fetch_page(url):
+    try:
+        resp = requests.get(url, timeout=15, headers={
+            'User-Agent': 'Mozilla/5.0 (NITK-Nav-Assistant/1.0)'
+        })
+        if resp.status_code != 200:
+            return None, []
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'noscript']):
+            tag.decompose()
+        text = ' '.join(soup.get_text(separator=' ', strip=True).split())
+
+        links = []
+        base_domain = urlparse(NITK_BASE_URL).netloc
+        for a in soup.find_all('a', href=True):
+            full_url = urljoin(url, a['href']).split('#')[0]
+            if urlparse(full_url).netloc == base_domain and full_url.startswith('http'):
+                if not any(full_url.lower().endswith(ext)
+                           for ext in ['.pdf', '.jpg', '.png', '.zip', '.doc', '.docx']):
+                    links.append(full_url)
+        return text, links
+    except Exception as e:
+        print(f'⚠️ Failed to fetch {url}: {e}')
+        return None, []
+
+
+def _chunk_text(text, source, chunk_words=180, overlap_words=40):
+    words = text.split()
+    chunks = []
+    i = 0
+    while i < len(words):
+        piece = words[i:i + chunk_words]
+        if len(piece) < 30:
+            break
+        chunks.append({'text': ' '.join(piece), 'source': source})
+        i += chunk_words - overlap_words
+    return chunks
+
+
+def _embed_text(text):
+    try:
+        url = ('https://generativelanguage.googleapis.com/v1beta/models/'
+               'gemini-embedding-001:embedContent')
+        body = json.dumps({"content": {"parts": [{"text": text}]}}).encode()
+        req = urllib.request.Request(
+            url, data=body, method='POST',
+            headers={'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY}
+        )
+        with urllib.request.urlopen(req, timeout=20) as r:
+            result = json.loads(r.read().decode())
+        values = result.get('embedding', {}).get('values')
+        return np.array(values, dtype=np.float32) if values else None
+    except Exception as e:
+        print(f'⚠️ Embedding failed: {e}')
+        return None
+
+
+def _build_knowledge_base():
+    global _knowledge_chunks, _knowledge_ready
+    print('🔄 Refreshing NITK knowledge base from nitk.ac.in ...')
+
+    visited, to_visit, new_chunks = set(), [NITK_BASE_URL], []
+
+    while to_visit and len(visited) < MAX_PAGES_TO_CRAWL:
+        url = to_visit.pop(0)
+        if url in visited:
+            continue
+        visited.add(url)
+
+        text, links = _fetch_page(url)
+        if text and len(text) > 200:
+            for chunk in _chunk_text(text, url):
+                emb = _embed_text(chunk['text'])
+                if emb is not None:
+                    chunk['embedding'] = emb
+                    new_chunks.append(chunk)
+            print(f'✅ Indexed {url}')
+
+        for link in links:
+            if link not in visited and link not in to_visit:
+                to_visit.append(link)
+
+    with _knowledge_lock:
+        _knowledge_chunks = new_chunks
+        _knowledge_ready = True
+    print(f'✅ Knowledge base ready — {len(new_chunks)} chunks from {len(visited)} pages')
+
+
+def _retrieve_relevant_chunks(query, top_k=5):
+    with _knowledge_lock:
+        snapshot = list(_knowledge_chunks)
+    if not snapshot:
+        return []
+    q_emb = _embed_text(query)
+    if q_emb is None:
+        return []
+    scored = [
+        (float(np.dot(q_emb, c['embedding']) /
+               (np.linalg.norm(q_emb) * np.linalg.norm(c['embedding']) + 1e-8)), c)
+        for c in snapshot
+    ]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [c for _, c in scored[:top_k]]
+
 # ── OTP store (in-memory — resets on server restart, fine for free tier) ──
 _otp_store = {}
 
 # ── NITK Chatbot system prompt (top-level constant, used by /nitk-chat) ───
-NITK_CHAT_SYSTEM_PROMPT = """You are the NITK Assistant, a friendly conversational AI for
-National Institute of Technology Karnataka (NITK), Surathkal. You chat naturally and
-helpfully, like ChatGPT or Claude — but ONLY about NITK and directly related topics.
+NITK_CHAT_BASE_PROMPT = """You are the NITK Assistant, a friendly conversational AI for
+National Institute of Technology Karnataka (NITK), Surathkal. Chat naturally and
+helpfully — but ONLY about NITK and directly related topics.
 
-IN SCOPE — happily discuss:
-- NITK's history, campus, departments, courses (B.Tech, M.Tech, MBA, M.Sc, PhD, MCA)
-- Admissions process (JEE Main, GATE+CCMT, CAT/MAT, CCMN, NIMCET) — general process
-  only; exact cutoffs/dates/fees change every year, so tell users to check the
-  official website (nitk.ac.in) for current figures rather than stating exact numbers
-- Campus facilities, hostels, library, sports, clubs, events, student life
-- Placements, notable alumni, research centres
-- The campus navigation app itself, if asked
-- General friendly conversation that relates back to NITK
+OUT OF SCOPE: politely decline anything unrelated to NITK, no matter how it's rephrased.
 
-OUT OF SCOPE — politely decline and redirect, no matter how the request is rephrased:
-- Anything unrelated to NITK (general coding help, other colleges, unrelated general
-  knowledge, unrelated personal advice, etc.)
-- When declining, be warm and brief, e.g. "I'm only able to chat about NITK-related
-  topics! Is there something about the campus, courses, or student life I can help with?"
-
-KEY FACTS ABOUT NITK (use these; note that rankings/fees/cutoffs change yearly and
-should be verified on nitk.ac.in):
-- Full name: National Institute of Technology Karnataka, Surathkal. Formerly Karnataka
-  Regional Engineering College (KREC).
-- Founded 1960, foundation laid by U. Srinivasa Mallya; upgraded to NIT status in 2002.
-- One of 31 NITs in India; Institute of National Importance.
-- 295-acre campus in Surathkal, near Mangaluru, Karnataka, on the Arabian Sea coast.
-- Departments: Civil Engineering, Mechanical Engineering, Electrical & Electronics
-  Engineering, Computer Science & Engineering, Electronics & Communication Engineering,
-  Information Technology, Chemical Engineering, Chemistry, Physics, Mathematical and
-  Computational Sciences, Metallurgical and Materials Engineering, Mining Engineering,
-  Water Resources & Ocean Engineering, and the School of Humanities, Social Sciences
-  and Management (offers MBA).
-- Facilities: central library, Central Research Facility, Career Development Centre
-  (CDC), Central Computer Centre, Health Care Centre, guest house, swimming pool,
-  playgrounds, open-air theatre, food court, staff club, post office.
-- Hostels accommodate 4500+ students with mess, laundry, and recreation facilities.
-- Strong placement record with recruiters including Microsoft, Amazon, Goldman Sachs,
-  Oracle, and others.
-- Notable alumni include K. V. Kamath (former ICICI Bank Chairman) and founders of
-  startups like Practo, Delhivery, Chai Point.
-- In 2020, NITK signed an MoU with ISRO to establish a Regional Academic Centre for Space.
-- Student clubs include the Literary, Stage and Debating Society (LSD) and Dance
-  Dramatics and Fashion Club (organizes the annual "Spandan" festival).
-
-Keep replies conversational, warm, and reasonably concise — like chatting with a
-helpful senior student, not reciting a brochure."""
+Below is information retrieved live from NITK's official website. Base your answer on
+it. If it doesn't cover the question, say so honestly and suggest checking nitk.ac.in
+directly — never invent specifics that aren't supported by the retrieved text."""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -370,36 +449,28 @@ def nitk_chat():
     try:
         data    = request.get_json(force=True)
         message = (data.get('message') or '').strip()
-        history = data.get('history', [])  # [{role: 'user'|'model', text: '...'}, ...]
-
+        history = data.get('history', [])
         if not message:
             return jsonify({'reply': ''})
 
-        contents = []
-        for turn in history:
-            contents.append({
-                "role": turn.get('role', 'user'),
-                "parts": [{"text": turn.get('text', '')}],
-            })
+        relevant = _retrieve_relevant_chunks(message, top_k=5)
+        context_text = '\n\n'.join(f"[Source: {c['source']}]\n{c['text']}" for c in relevant) \
+            if relevant else "(No specific retrieved content — be upfront if unsure of specifics.)"
+
+        system_prompt = f"{NITK_CHAT_BASE_PROMPT}\n\n──────────\n{context_text}\n──────────"
+
+        contents = [{"role": t.get('role', 'user'), "parts": [{"text": t.get('text', '')}]}
+                    for t in history]
         contents.append({"role": "user", "parts": [{"text": message}]})
 
-        gemini_url = (
-            f'https://generativelanguage.googleapis.com/v1beta/models/'
-            f'{GEMINI_MODEL}:generateContent'
-        )
+        gemini_url = f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent'
         body = json.dumps({
-            "system_instruction": {"parts": [{"text": NITK_CHAT_SYSTEM_PROMPT}]},
+            "system_instruction": {"parts": [{"text": system_prompt}]},
             "contents": contents,
         }).encode()
-
         req = urllib.request.Request(
-            gemini_url,
-            data=body,
-            method='POST',
-            headers={
-                'Content-Type':   'application/json',
-                'x-goog-api-key': GEMINI_API_KEY,
-            }
+            gemini_url, data=body, method='POST',
+            headers={'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY}
         )
         with urllib.request.urlopen(req, timeout=25) as r:
             result = json.loads(r.read().decode())
@@ -408,12 +479,31 @@ def nitk_chat():
             return jsonify({'reply': "Sorry, I couldn't process that. Please try again."})
 
         reply_text = result['candidates'][0]['content']['parts'][0]['text']
-        print(f'💬 NITK chat: "{message[:60]}"')
         return jsonify({'reply': reply_text.strip()})
 
     except Exception as e:
         print(f'❌ NITK chat error: {e}')
         return jsonify({'reply': "Sorry, something went wrong. Please try again."}), 500
+
+
+@app.route('/refresh-knowledge')
+def refresh_knowledge():
+    if request.args.get('key', '') != KNOWLEDGE_REFRESH_KEY:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    threading.Thread(target=_build_knowledge_base, daemon=True).start()
+    return jsonify({'success': True, 'message': 'Refresh started in background'})
+
+
+@app.route('/knowledge-status')
+def knowledge_status():
+    with _knowledge_lock:
+        return jsonify({'ready': _knowledge_ready, 'chunkCount': len(_knowledge_chunks)})
+
+
+# Build the knowledge base once at startup, in the background, so it's not
+# empty for the first users. Runs under gunicorn too (module-level, not
+# inside __main__).
+threading.Thread(target=_build_knowledge_base, daemon=True).start()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
