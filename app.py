@@ -15,6 +15,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 import numpy as np
 import threading
+from google import genai
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -57,6 +58,7 @@ else:
 
 _account_otp_store = {}  # email -> {otp, expiry}
 
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 def _send_twilio_sms(phone_e164, body_text):
     payload = urllib.parse.urlencode({
@@ -117,19 +119,15 @@ def _chunk_text(text, source, chunk_words=180, overlap_words=40):
 
 def _embed_text(text):
     try:
-        url = ('https://generativelanguage.googleapis.com/v1beta/models/'
-               'gemini-embedding-001:embedContent')
-        body = json.dumps({"content": {"parts": [{"text": text}]}}).encode()
-        req = urllib.request.Request(
-            url, data=body, method='POST',
-            headers={'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY}
+        response = client.models.embed_content(
+            model="gemini-embedding-001",
+            contents=text,
         )
-        with urllib.request.urlopen(req, timeout=20) as r:
-            result = json.loads(r.read().decode())
-        values = result.get('embedding', {}).get('values')
-        return np.array(values, dtype=np.float32) if values else None
+
+        return np.array(response.embeddings[0].values, dtype=np.float32)
+
     except Exception as e:
-        print(f'⚠️ Embedding failed: {e}')
+        print(f"⚠️ Embedding failed: {e}")
         return None
 
 
