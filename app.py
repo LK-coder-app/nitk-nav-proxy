@@ -18,6 +18,7 @@ import threading
 from google import genai
 import re
 from urllib.parse import quote
+from crawler import build_search_index, refresh_knowledge
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -50,6 +51,16 @@ if FIREBASE_SERVICE_ACCOUNT_JSON:
 else:
     print('⚠️ FIREBASE_SERVICE_ACCOUNT_JSON not set — auth endpoints will fail')
 
+print("Loading NITK knowledge...")
+
+build_search_index()
+threading.Thread(
+    target=auto_refresh,
+    daemon=True
+).start()
+
+print("Knowledge loaded successfully.")
+
 _account_otp_store = {}  # email -> {otp, expiry}
 
 client = genai.Client(api_key=GEMINI_API_KEY)
@@ -71,6 +82,21 @@ def _send_twilio_sms(phone_e164, body_text):
     )
     with urllib.request.urlopen(req, timeout=15) as r:
         return json.loads(r.read().decode())
+
+import threading
+import time
+
+def auto_refresh():
+    while True:
+        try:
+            print("Refreshing NITK knowledge...")
+            refresh_knowledge()
+            print("Knowledge refreshed successfully.")
+        except Exception as e:
+            print("Refresh Error:", e)
+
+        # Sleep for 24 hours
+        time.sleep(24 * 60 * 60)
 
 def search_nitk_page(query):
     """
@@ -122,6 +148,43 @@ def search_nitk_page(query):
     except Exception as e:
         print("Search Error:", e)
         return "https://www.nitk.ac.in/"
+
+
+def search_knowledge(query):
+    import json
+
+    if not os.path.exists("nitk_knowledge.json"):
+        return ""
+
+    with open("nitk_knowledge.json", "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    query = query.lower()
+
+    matches = []
+
+    for page in data:
+        title = page.get("title", "").lower()
+        text = page.get("text", "").lower()
+
+        if query in text or query in title:
+            matches.append(page)
+
+    if not matches:
+        words = query.split()
+
+        for page in data:
+            text = page.get("text", "").lower()
+
+            score = sum(word in text for word in words)
+
+            if score >= 2:
+                matches.append(page)
+
+    return "\n\n".join(
+        f"Source: {p['url']}\n{p['text'][:3500]}"
+        for p in matches[:3]
+    )
 
 def fetch_nitk_page(url):
     try:
@@ -413,72 +476,71 @@ def nl_destination():
 # ─────────────────────────────────────────────────────────────────────────────
 # NITK CHATBOT — general conversation, scoped to NITK topics only
 # ─────────────────────────────────────────────────────────────────────────────
+from crawler import build_context
+
 @app.route('/nitk-chat', methods=['POST'])
 def nitk_chat():
     try:
-        data    = request.get_json(force=True)
-        message = (data.get('message') or '').strip()
-        history = data.get('history', [])
+        data = request.get_json(force=True)
+
+        message = (data.get("message") or "").strip()
+
+        history = data.get("history", [])
+
         if not message:
-            return jsonify({'reply': ''})
+            return jsonify({"reply": ""})
 
-        page_url = search_nitk_page(message)
+        context = build_context(message)
 
-        print("Searching:", page_url)
 
-        website_text = fetch_nitk_page(page_url)
-        
-        print("=" * 60)
-        print("PAGE:", page_url)
-        print("Downloaded:", len(website_text), "characters")
-        print("=" * 60)
+        if not context.strip():
+            return jsonify({
+                "reply": "I couldn't find that information in the available NITK knowledge base."
+            })
+        prompt = f"""
+        You are the official AI Assistant for NITK Surathkal.
 
-        system_prompt = f"""
-        You are the official NITK Surathkal AI Assistant.
+        Answer ONLY using the information provided in the context below.
 
-        Answer ONLY using the webpage content below.
+        IMPORTANT RULES:
 
-        If the answer exists in the webpage,
-        answer completely.
+        1. Never tell the user to visit the official website.
+        2. Never answer "please refer to the website".
+        3. If the answer exists in the context, explain it naturally in your own words.
+        4. Combine information from multiple pages if needed.
+        5. If the information is not found in the context, reply exactly:
 
-        Do NOT tell the user to visit the website.
+        "I couldn't find that information in the available NITK knowledge base."
 
-        If the answer truly does not exist in the webpage,
-        say:
+        6. Keep the answer concise but informative.
 
-        "I couldn't find that information on the official NITK website."
+        --------------------------
+        NITK KNOWLEDGE
 
-        Mention the webpage URL only at the end if useful.
+        {context}
 
-        Webpage URL:
-        {page_url}
+        --------------------------
 
-        Webpage Content:
-
-        {website_text}
+        User Question:
+        {message}
         """
-
-        contents = [{"role": t.get('role', 'user'), "parts": [{"text": t.get('text', '')}]}
-                    for t in history]
-        contents.append({"role": "user", "parts": [{"text": message}]})
 
         response = client.models.generate_content(
             model=GEMINI_MODEL,
-            contents=f"""
-        {system_prompt}
-
-        User Question:
-
-        {message}
-        """
+            contents=[prompt]
         )
 
-        reply_text = response.text
-        return jsonify({'reply': reply_text.strip()})
+        return jsonify({
+            "reply": response.text.strip()
+        })
 
     except Exception as e:
-        print(f'❌ NITK chat error: {e}')
-        return jsonify({'reply': "Sorry, something went wrong. Please try again."}), 500
+
+        print("CHAT ERROR:", e)
+
+        return jsonify({
+            "reply": "Sorry, something went wrong."
+        }), 500
 
 
 # Build the knowledge base once at startup, in the background, so it's not
@@ -625,7 +687,37 @@ def health():
 def ping():
     return jsonify({'pong': True})
 
+@app.route("/refresh-knowledge")
+def refresh():
 
+    key = request.args.get("key", "")
+
+    if key != KNOWLEDGE_REFRESH_KEY:
+        return jsonify({
+            "success": False
+        }), 403
+
+    threading.Thread(
+        target=refresh_knowledge,
+        daemon=True
+    ).start()
+
+    return jsonify({
+        "success": True,
+        "message": "Knowledge refresh started."
+    })
+
+from crawler import load_knowledge
+
+@app.route("/knowledge-status")
+def knowledge_status():
+
+    pages = load_knowledge()
+
+    return jsonify({
+        "ready": len(pages) > 0,
+        "pages": len(pages)
+    })
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8081))
