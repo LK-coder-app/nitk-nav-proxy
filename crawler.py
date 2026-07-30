@@ -5,7 +5,6 @@ from collections import deque
 from urllib.parse import urljoin, urlparse
 from rank_bm25 import BM25Okapi
 import re
-
 import requests
 from bs4 import BeautifulSoup
 
@@ -170,7 +169,17 @@ def search_knowledge(query, top_k=5):
     if _bm25 is None:
         build_search_index()
 
-    query_tokens = re.findall(r'\w+', query.lower())
+    STOP_WORDS = {
+        "who", "what", "where", "when", "why", "how",
+        "is", "are", "was", "were", "the", "a", "an",
+        "of", "for", "to", "in", "on", "at", "and",
+        "tell", "me", "about", "please"
+    }
+
+    query_tokens = [
+        w for w in re.findall(r'\w+', query.lower())
+        if w not in STOP_WORDS
+    ]
 
     print("=" * 50)
     print("Query:", query)
@@ -227,6 +236,7 @@ URL: {page['url']}
     return context
 
 def refresh_knowledge():
+
     print("Refreshing knowledge...")
 
     crawl()
