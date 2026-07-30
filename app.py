@@ -540,7 +540,20 @@ def set_user_phone():
         print(f'❌ set_user_phone error: {e}')
         return jsonify({'success': False, 'message': str(e)})
 
-
+@app.route('/check-phone-status')
+def check_phone_status():
+    try:
+        email = (request.args.get('email') or '').strip().lower()
+        if not email:
+            return jsonify({'success': False, 'message': 'Email required'})
+        try:
+            user = fb_auth.get_user_by_email(email)
+        except fb_auth.UserNotFoundError:
+            return jsonify({'success': False, 'message': 'No account found with this email'})
+        return jsonify({'success': True, 'hasVerifiedPhone': bool(user.phone_number)})
+    except Exception as e:
+        print(f'❌ check_phone_status error: {e}')
+        return jsonify({'success': False, 'message': str(e)})
 # ─────────────────────────────────────────────────────────────────────────────
 # SEND OTP — used for both OTP-login and password reset (same purpose: prove
 # you own the account associated with this email, via its verified phone)
