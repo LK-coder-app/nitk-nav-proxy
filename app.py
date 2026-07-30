@@ -16,7 +16,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 import numpy as np
 import threading
-from google import genai
+from openai import OpenAI
 import re
 from urllib.parse import quote
 from crawler import build_search_index, refresh_knowledge
@@ -37,6 +37,7 @@ GMAIL_USER     = os.environ.get('GMAIL_USER', '')
 GMAIL_PASS     = os.environ.get('GMAIL_PASS', '')
 GMAIL_TO       = os.environ.get('GMAIL_TO', '')
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '')
 KNOWLEDGE_REFRESH_KEY = os.environ.get('KNOWLEDGE_REFRESH_KEY', '') 
 GEMINI_MODEL   = 'gemini-2.5-flash'
 # ── Auto-updating NITK knowledge base — scraped from nitk.ac.in ───────────
@@ -56,7 +57,10 @@ else:
 
 _account_otp_store = {}  # email -> {otp, expiry}
 
-client = genai.Client(api_key=GEMINI_API_KEY)
+groq_client = OpenAI(
+    api_key=os.environ["GROQ_API_KEY"],
+    base_url="https://api.groq.com/openai/v1"
+)
 
 def _send_twilio_sms(phone_e164, body_text):
     payload = urllib.parse.urlencode({
@@ -495,16 +499,25 @@ def nitk_chat():
         {message}
         """
 
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=[prompt]
+        response = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are the official AI Assistant for NITK Surathkal."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=0.3,
         )
-        print("=" * 50)
-        print("Gemini response:")
-        print(response.text)
+
+        reply = response.choices[0].message.content
 
         return jsonify({
-            "reply": response.text.strip()
+            "reply": reply.strip()
         })
 
     except Exception as e:
