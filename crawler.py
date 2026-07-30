@@ -12,7 +12,7 @@ BASE_URL = "https://www.nitk.ac.in/"
 OUTPUT_FILE = "knowledge.json"
 _bm25 = None
 _pages = None
-MAX_PAGES = 200
+MAX_PAGES = 700
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0"
@@ -296,7 +296,7 @@ def build_context(query):
 
     for page in pages:
 
-        text = page["text"][:2000]
+        text = page["text"][:3000]
 
         context += f"""
 Title: {page['title']}
