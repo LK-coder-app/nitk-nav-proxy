@@ -52,16 +52,6 @@ if FIREBASE_SERVICE_ACCOUNT_JSON:
 else:
     print('⚠️ FIREBASE_SERVICE_ACCOUNT_JSON not set — auth endpoints will fail')
 
-print("Loading NITK knowledge...")
-
-build_search_index()
-threading.Thread(
-    target=auto_refresh,
-    daemon=True
-).start()
-
-print("Knowledge loaded successfully.")
-
 _account_otp_store = {}  # email -> {otp, expiry}
 
 client = genai.Client(api_key=GEMINI_API_KEY)
@@ -98,6 +88,16 @@ def auto_refresh():
 
         # Sleep for 24 hours
         time.sleep(24 * 60 * 60)
+        
+print("Loading NITK knowledge...")
+
+build_search_index()
+threading.Thread(
+    target=auto_refresh,
+    daemon=True
+).start()
+
+print("Knowledge loaded successfully.")
 
 def search_nitk_page(query):
     """
