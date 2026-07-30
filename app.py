@@ -22,6 +22,7 @@ from crawler import build_search_index, refresh_knowledge
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from crawler import build_context
 
 app = Flask(__name__)
 CORS(app)
@@ -476,7 +477,6 @@ def nl_destination():
 # ─────────────────────────────────────────────────────────────────────────────
 # NITK CHATBOT — general conversation, scoped to NITK topics only
 # ─────────────────────────────────────────────────────────────────────────────
-from crawler import build_context
 
 @app.route('/nitk-chat', methods=['POST'])
 def nitk_chat():
