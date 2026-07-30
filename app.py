@@ -36,6 +36,7 @@ GMAIL_USER     = os.environ.get('GMAIL_USER', '')
 GMAIL_PASS     = os.environ.get('GMAIL_PASS', '')
 GMAIL_TO       = os.environ.get('GMAIL_TO', '')
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+KNOWLEDGE_REFRESH_KEY = os.environ.get('KNOWLEDGE_REFRESH_KEY', '') 
 GEMINI_MODEL   = 'gemini-2.5-flash'
 # ── Auto-updating NITK knowledge base — scraped from nitk.ac.in ───────────
 # ── Firebase Admin SDK — needed for OTP-based login and password reset ────
