@@ -181,7 +181,7 @@ def search_knowledge(query):
             if score >= 2:
                 matches.append(page)
 
-    return "\n\n".join(
+return "\n\n".join(
         f"Source: {p['url']}\n{p['text'][:3500]}"
         for p in matches[:3]
     )

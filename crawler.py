@@ -139,7 +139,6 @@ def load_knowledge():
     with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
-import re
 
 def search_knowledge(query, top_k=5):
 
@@ -164,7 +163,7 @@ def build_context(query):
     pages = search_knowledge(query)
 
     if not pages:
-        return "No relevant information found."
+        return ""
 
     context = ""
 
@@ -173,17 +172,17 @@ def build_context(query):
         text = page["text"][:3000]
 
         context += f"""
-        Title: {page['title']}
+Title: {page['title']}
 
-        URL: {page['url']}
+URL: {page['url']}
 
-        {text}
+{text}
 
-        --------------------------------------------------------
+--------------------------------------------------------
 
-        """
+"""
 
-            return context
+    return context
 
 def refresh_knowledge():
     print("Refreshing knowledge...")
