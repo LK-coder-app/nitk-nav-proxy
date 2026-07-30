@@ -141,13 +141,16 @@ def load_knowledge():
 
 
 def search_knowledge(query, top_k=5):
-
     global _bm25, _pages
 
     if _bm25 is None:
         build_search_index()
 
     query_tokens = re.findall(r'\w+', query.lower())
+
+    print("=" * 50)
+    print("Query:", query)
+    print("Tokens:", query_tokens)
 
     scores = _bm25.get_scores(query_tokens)
 
@@ -156,11 +159,22 @@ def search_knowledge(query, top_k=5):
         key=lambda x: x[0],
         reverse=True
     )
-    return [page for score, page in ranked[:top_k] if score > 0]
+
+    print("Top Results:")
+
+    for score, page in ranked[:5]:
+        print(score, page["title"])
+
+    results = [page for score, page in ranked[:top_k] if score > 0]
+
+    print("Returned:", len(results))
+
+    return results
 
 def build_context(query):
+    
 
-    pages = search_knowledge(query)
+    pages = search_knowledge(query, top_k=3)
 
     if not pages:
         return ""
@@ -169,7 +183,7 @@ def build_context(query):
 
     for page in pages:
 
-        text = page["text"][:3000]
+        text = page["text"][:1200]
 
         context += f"""
 Title: {page['title']}
@@ -182,6 +196,10 @@ URL: {page['url']}
 
 """
 
+    print("=" * 50)
+    print("Context length:", len(context))
+    print(context[:1000])
+    
     return context
 
 def refresh_knowledge():
@@ -197,7 +215,7 @@ if __name__ == "__main__":
 
     refresh_knowledge()
 
-    pages = search_knowledge("placement")
+    pages = search_knowledge("director")
 
     print(len(pages))
 

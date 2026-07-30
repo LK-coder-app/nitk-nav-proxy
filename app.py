@@ -1,3 +1,4 @@
+from multiprocessing import context
 import os
 import json
 import random
@@ -457,7 +458,11 @@ def nitk_chat():
 
         context = build_context(message)
 
-
+        print("=" * 50)
+        print("Message:", message)
+        print("Context received:", len(context))
+        print(context[:1000])
+        
         if not context.strip():
             return jsonify({
                 "reply": "I couldn't find that information in the available NITK knowledge base."
@@ -494,6 +499,9 @@ def nitk_chat():
             model=GEMINI_MODEL,
             contents=[prompt]
         )
+        print("=" * 50)
+        print("Gemini response:")
+        print(response.text)
 
         return jsonify({
             "reply": response.text.strip()
