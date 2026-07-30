@@ -152,42 +152,6 @@ def search_nitk_page(query):
         return "https://www.nitk.ac.in/"
 
 
-def search_knowledge(query):
-    import json
-
-    if not os.path.exists("nitk_knowledge.json"):
-        return ""
-
-    with open("nitk_knowledge.json", "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    query = query.lower()
-
-    matches = []
-
-    for page in data:
-        title = page.get("title", "").lower()
-        text = page.get("text", "").lower()
-
-        if query in text or query in title:
-            matches.append(page)
-
-    if not matches:
-        words = query.split()
-
-        for page in data:
-            text = page.get("text", "").lower()
-
-            score = sum(word in text for word in words)
-
-            if score >= 2:
-                matches.append(page)
-
-    return "\n\n".join(
-        f"Source: {p['url']}\n{p['text'][:3500]}"
-        for p in matches[:3]
-    )
-
 def fetch_nitk_page(url):
     try:
         headers = {
