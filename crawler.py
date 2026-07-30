@@ -56,6 +56,9 @@ def extract_text(html):
 
     # Try common content containers
     selectors = [
+        ".gdlr-core-page-builder-body",
+        ".gdlr-core-pbf-wrapper-content",
+        ".gdlr-core-text-box-item-content",
         "main",
         "article",
         '[role="main"]',
@@ -63,7 +66,6 @@ def extract_text(html):
         "#main-content",
         ".content",
         ".main-content",
-        ".node__content",
         ".page-content"
     ]
 
@@ -75,10 +77,35 @@ def extract_text(html):
             break
 
     if main:
-        text = clean_text(main.get_text(" ", strip=True))
+        text = "\n".join(
+            line.strip()
+            for line in main.get_text("\n").splitlines()
+            if line.strip()
+        )
     else:
-        text = clean_text(soup.get_text(" ", strip=True))
+        text = "\n".join(
+            line.strip()
+            for line in soup.get_text("\n").splitlines()
+            if line.strip()
+        )
 
+    lines = []
+    seen = set()
+
+    for line in text.splitlines():
+        line = line.strip()
+
+        if len(line) < 2:
+            continue
+
+        if line in seen:
+            continue
+
+        seen.add(line)
+        lines.append(line)
+
+    text = "\n".join(lines)
+    
     return title, text
 
 
@@ -255,3 +282,18 @@ if __name__ == "__main__":
 
     for p in pages:
         print(p["title"])
+        
+pages = load_knowledge()
+
+count = 0
+
+for page in pages:
+    text = page["text"].lower()
+
+    if "placement" in text:
+        count += 1
+        print(page["title"])
+        print(page["url"])
+        print("-" * 60)
+
+print("Found:", count)
