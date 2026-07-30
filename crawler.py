@@ -197,14 +197,48 @@ def search_knowledge(query, top_k=5):
         build_search_index()
 
     STOP_WORDS = {
-        "who", "what", "where", "when", "why", "how",
-        "is", "are", "was", "were", "the", "a", "an",
-        "of", "for", "to", "in", "on", "at", "and",
-        "tell", "me", "about", "please"
+        "who","what","where","when","why","how",
+        "tell","give","show","about","please",
+        "me","the","a","an","of","for","to","in",
+        "on","at","is","are","was","were","does",
+        "do","can","could","would"
     }
 
+    query = query.lower()
+
+    # -------- Query Expansion --------
+
+    REPLACEMENTS = {
+        "placements": "placement",
+        "placements": "placement",
+
+        "director email": "director office",
+        "director mail": "director office",
+
+        "career development centre": "career development center",
+        "career development center": "career development center",
+        "cdc": "career development center",
+
+        "cse": "computer science",
+        "ece": "electronics",
+        "eee": "electrical",
+        "mech": "mechanical engineering",
+        "mechanical": "mechanical engineering",
+
+        "civil dept": "civil engineering",
+        "chemical dept": "chemical engineering",
+
+        "hostels": "hostel",
+        "messes": "mess",
+    }
+
+    for old, new in REPLACEMENTS.items():
+        query = query.replace(old, new)
+
+    # -------------------------------
+
     query_tokens = [
-        w for w in re.findall(r'\w+', query.lower())
+        w for w in re.findall(r'\w+', query)
         if w not in STOP_WORDS
     ]
 
@@ -214,8 +248,27 @@ def search_knowledge(query, top_k=5):
 
     scores = _bm25.get_scores(query_tokens)
 
+    boosted = []
+
+    for score, page in zip(scores, _pages):
+
+        title = page["title"].lower()
+
+        boost = 0
+
+        # Boost if the whole query appears in the title
+        if query in title:
+            boost += 10
+
+        # Boost for individual keywords appearing in the title
+        for token in query_tokens:
+            if token in title:
+                boost += 2
+
+        boosted.append((score + boost, page))
+
     ranked = sorted(
-        zip(scores, _pages),
+        boosted,
         key=lambda x: x[0],
         reverse=True
     )
@@ -234,7 +287,7 @@ def search_knowledge(query, top_k=5):
 def build_context(query):
     
 
-    pages = search_knowledge(query, top_k=3)
+    pages = search_knowledge(query, top_k=8)
 
     if not pages:
         return ""
@@ -243,7 +296,7 @@ def build_context(query):
 
     for page in pages:
 
-        text = page["text"][:1200]
+        text = page["text"][:2000]
 
         context += f"""
 Title: {page['title']}
