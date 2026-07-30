@@ -49,12 +49,36 @@ def build_search_index():
 def extract_text(html):
     soup = BeautifulSoup(html, "html.parser")
 
-    for tag in soup(["script", "style", "noscript"]):
+    # Remove unwanted tags
+    for tag in soup(["script", "style", "noscript", "header", "footer", "nav", "aside"]):
         tag.decompose()
 
-    title = soup.title.string.strip() if soup.title else ""
+    title = soup.title.get_text(strip=True) if soup.title else ""
 
-    text = clean_text(soup.get_text(separator=" "))
+    # Try common content containers
+    selectors = [
+        "main",
+        "article",
+        '[role="main"]',
+        "#content",
+        "#main-content",
+        ".content",
+        ".main-content",
+        ".node__content",
+        ".page-content"
+    ]
+
+    main = None
+
+    for selector in selectors:
+        main = soup.select_one(selector)
+        if main:
+            break
+
+    if main:
+        text = clean_text(main.get_text(" ", strip=True))
+    else:
+        text = clean_text(soup.get_text(" ", strip=True))
 
     return title, text
 
