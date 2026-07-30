@@ -24,6 +24,9 @@ from crawler import build_search_index, refresh_knowledge
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from crawler import build_context
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
@@ -57,8 +60,14 @@ else:
 
 _account_otp_store = {}  # email -> {otp, expiry}
 
+print("GROQ key exists:", bool(GROQ_API_KEY))
+print("GROQ key length:", len(GROQ_API_KEY))
+
+if not GROQ_API_KEY:
+    raise RuntimeError("GROQ_API_KEY is missing!")
+
 groq_client = OpenAI(
-    api_key=os.environ["GROQ_API_KEY"],
+    api_key=GROQ_API_KEY,
     base_url="https://api.groq.com/openai/v1"
 )
 

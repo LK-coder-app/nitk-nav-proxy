@@ -336,17 +336,3 @@ if __name__ == "__main__":
     for p in pages:
         print(p["title"])
         
-pages = load_knowledge()
-
-count = 0
-
-for page in pages:
-    text = page["text"].lower()
-
-    if "placement" in text:
-        count += 1
-        print(page["title"])
-        print(page["url"])
-        print("-" * 60)
-
-print("Found:", count)
