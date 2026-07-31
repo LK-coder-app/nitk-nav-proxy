@@ -7,6 +7,7 @@ from rank_bm25 import BM25Okapi
 import re
 import requests
 from bs4 import BeautifulSoup
+import zipfile
 
 BASE_URL = "https://www.nitk.ac.in/"
 OUTPUT_FILE = "knowledge.json"
@@ -46,6 +47,11 @@ def build_search_index():
 
     knowledge = load_knowledge()
 
+    if not knowledge:
+        print("No knowledge available.")
+
+        return
+
     corpus = []
 
     seen_chunks = set()
@@ -78,6 +84,11 @@ def build_search_index():
                     (page["title"] + " " + chunk).lower()
                 )
             )
+
+    if not corpus:
+        print("Search index is empty.")
+
+        return
 
     _bm25 = BM25Okapi(corpus)
 
@@ -316,6 +327,39 @@ def load_knowledge():
 
     with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def download_knowledge():
+
+    if os.path.exists(OUTPUT_FILE):
+        print("Knowledge file already exists.")
+        return
+
+    print("Downloading knowledge from GitHub Release...")
+
+    url = "https://github.com/LK-coder-app/nitk-nav-proxy/releases/download/v1.0/knowledge.zip"
+
+    r = requests.get(url, stream=True, timeout=300)
+
+    r.raise_for_status()
+
+    with open("knowledge.zip", "wb") as f:
+        for chunk in r.iter_content(1024 * 1024):
+            if chunk:
+                f.write(chunk)
+
+    print("Extracting knowledge...")
+
+    with zipfile.ZipFile("knowledge.zip", "r") as zip_ref:
+        zip_ref.extractall(".")
+
+    os.remove("knowledge.zip")
+
+    if not os.path.exists(OUTPUT_FILE):
+        raise RuntimeError("knowledge.json was not extracted correctly!")
+
+    print("Knowledge downloaded successfully.")
+
 
 
 def search_knowledge(query, top_k=5):

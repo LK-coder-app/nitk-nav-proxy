@@ -19,7 +19,11 @@ import threading
 from openai import OpenAI
 import re
 from urllib.parse import quote
-from crawler import build_search_index, refresh_knowledge
+from crawler import (
+    build_search_index,
+    refresh_knowledge,
+    download_knowledge
+)
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -30,6 +34,7 @@ load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
+knowledge_ready = False
 
 # ── Environment variables (set these in Render dashboard) ─────────────────
 ORS_KEY        = os.environ.get('ORS_KEY', '')
@@ -104,15 +109,27 @@ def auto_refresh():
         # Sleep for 24 hours
         time.sleep(24 * 60 * 60)
         
-print("Loading NITK knowledge...")
+def initialize_knowledge():
+    global knowledge_ready
 
-build_search_index()
-threading.Thread(
-    target=auto_refresh,
-    daemon=True
-).start()
+    try:
+        print("Loading NITK knowledge...")
 
-print("Knowledge loaded successfully.")
+        download_knowledge()
+
+        build_search_index()
+
+        knowledge_ready = True
+
+        print("Knowledge loaded successfully.")
+
+    except Exception as e:
+        print("Knowledge initialization failed:", e)
+
+    threading.Thread(
+        target=auto_refresh,
+        daemon=True
+    ).start()
 
 def search_nitk_page(query):
     """
@@ -206,7 +223,10 @@ Below is information retrieved live from NITK's official website. Base your answ
 it. If it doesn't cover the question, say so honestly and suggest checking nitk.ac.in
 directly — never invent specifics that aren't supported by the retrieved text."""
 
-
+threading.Thread(
+    target=initialize_knowledge,
+    daemon=True
+).start()
 # ─────────────────────────────────────────────────────────────────────────────
 # ORS ROUTING
 # ─────────────────────────────────────────────────────────────────────────────
@@ -459,6 +479,12 @@ def nl_destination():
 
 @app.route('/nitk-chat', methods=['POST'])
 def nitk_chat():
+    global knowledge_ready
+
+    if not knowledge_ready:
+        return jsonify({
+            "reply": "The NITK knowledge base is still loading. Please try again in a minute."
+        })
     try:
         data = request.get_json(force=True)
 
