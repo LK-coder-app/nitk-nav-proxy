@@ -1,4 +1,11 @@
-# Firebase
-nitk-navigation-firebase-adminsdk-fbsvc-58271bd1d0.json
 .env
+
 knowledge.json
+knowledge.zip
+
+nitk_chroma/
+
+__pycache__/
+*.pyc
+
+test.py

@@ -3,22 +3,32 @@ import os
 import time
 from collections import deque
 from urllib.parse import urljoin, urlparse
-from rank_bm25 import BM25Okapi
 import re
 import requests
 from bs4 import BeautifulSoup
 import zipfile
+import chromadb
+from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
 BASE_URL = "https://www.nitk.ac.in/"
 OUTPUT_FILE = "knowledge.json"
-_bm25 = None
-_pages = None
 MAX_PAGES = 2500
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0"
 }
+# ---------- ChromaDB ----------
+client = chromadb.PersistentClient(path="nitk_chroma")
 
+embedding_function = SentenceTransformerEmbeddingFunction(
+    model_name="all-MiniLM-L6-v2"
+)
+
+collection = client.get_or_create_collection(
+    name="nitk",
+    embedding_function=embedding_function
+)
+# ------------------------------
 
 def clean_text(text):
     return " ".join(text.split())
@@ -41,63 +51,7 @@ def split_into_chunks(text, chunk_size=1200, overlap=250):
 
 
 def build_search_index():
-    global _bm25, _pages
-
-    _pages = []
-
-    print("Loading knowledge.json...")
-    knowledge = load_knowledge()
-    print(f"Loaded {len(knowledge)} pages.")
-
-
-    if not knowledge:
-        print("No knowledge available.")
-
-        return
-
-    corpus = []
-
-    seen_chunks = set()
-
-    for page in knowledge:
-
-        chunks = split_into_chunks(page["text"])
-
-        for i, chunk in enumerate(chunks):
-
-            chunk_key = clean_text(chunk).lower()
-
-            if chunk_key in seen_chunks:
-                continue
-
-            seen_chunks.add(chunk_key)
-
-            record = {
-                "title": page["title"],
-                "url": page["url"],
-                "chunk": i,
-                "text": chunk
-            }
-
-            _pages.append(record)
-
-            corpus.append(
-                re.findall(
-                    r'\w+',
-                    (page["title"] + " " + chunk).lower()
-                )
-            )
-
-    if not corpus:
-        print("Search index is empty.")
-
-        return
-
-    print(f"Creating BM25 index from {len(corpus)} chunks...")
-    _bm25 = BM25Okapi(corpus)
-    print("BM25 index created successfully.")
-
-    print(f"Loaded {_bm25.corpus_size} pages into search index.")
+    print("Using ChromaDB search index.")
 
 
 def extract_text(html):
@@ -236,6 +190,11 @@ def crawl():
 
             r = requests.get(url, headers=HEADERS, timeout=30)
 
+            content_type = r.headers.get("Content-Type", "").lower()
+
+            if "text/html" not in content_type:
+                continue
+
             if r.status_code != 200:
                 continue
 
@@ -281,7 +240,7 @@ def crawl():
                     link += "?" + parsed.query
 
                 # Skip PDFs for now
-                if link.endswith(".pdf"):
+                if link.lower().endswith(".pdf"):
                     continue
 
                 # Skip unwanted pages
@@ -382,150 +341,43 @@ def download_knowledge():
 
 
 
-def search_knowledge(query, top_k=5):
-    global _bm25, _pages
+def search_knowledge(query, top_k=10):
 
-    if _bm25 is None:
-        build_search_index()
+    results = collection.query(
+        query_texts=[query],
+        n_results=top_k
+    )
 
-    STOP_WORDS = {
-        "who","what","where","when","why","how",
-        "tell","give","show","about","please",
-        "me","the","a","an","of","for","to","in",
-        "on","at","is","are","was","were","does",
-        "do","can","could","would"
-    }
+    pages = []
 
-    query = query.lower()
+    documents = results["documents"][0]
+    metadatas = results["metadatas"][0]
 
-    # -------- Query Expansion --------
+    for doc, meta in zip(documents, metadatas):
 
-    REPLACEMENTS = {
+        pages.append({
 
-        "placements": "placement",
-        "placement statistics": "placement report",
-        "placement record": "placement report",
-        "placement data": "placement report",
+            "title": meta["title"],
 
-        "cdc": "career development center",
-        "career centre": "career development center",
+            "url": meta["url"],
 
-        "hod": "head of department",
-        "head": "head of department",
+            "text": doc
 
-        "prof": "professor",
-        "faculty": "staff professor",
-
-        "staff": "faculty",
-        "teachers": "faculty",
-
-        "hostels": "hostel",
-        "messes": "mess",
-
-        "admission": "admissions",
-
-        "btech": "undergraduate",
-        "mtech": "postgraduate",
-
-        "phd": "doctor of philosophy",
-
-        "cse": "computer science",
-        "ece": "electronics",
-        "eee": "electrical",
-        "mech": "mechanical engineering",
-        "civil": "civil engineering",
-        "chem": "chemical engineering",
-
-        "students": "student",
-        "labs": "laboratory",
-
-        "director mail": "director office",
-        "director email": "director office",
-
-    }
-
-    for old, new in REPLACEMENTS.items():
-        query = query.replace(old, new)
-
-    # -------------------------------
-
-    query_tokens = [
-        w for w in re.findall(r'\w+', query)
-        if w not in STOP_WORDS
-    ]
+        })
 
     print("=" * 50)
     print("Query:", query)
-    print("Tokens:", query_tokens)
+    print("Results:", len(pages))
 
-    scores = _bm25.get_scores(query_tokens)
+    for page in pages:
+        print(page["title"])
 
-    boosted = []
-
-    for score, page in zip(scores, _pages):
-
-        title = page["title"].lower()
-
-        boost = 0
-
-        # Boost if the whole query appears in the title
-        if query in title:
-            boost += 10
-
-        # Boost for individual keywords appearing in the title
-        for token in query_tokens:
-            if token in title:
-                boost += 2
-
-        text = page["text"].lower()
-
-        for token in query_tokens:
-
-            if token in text:
-                boost += 0.3
-
-        boosted.append((score + boost, page))
-
-    ranked = sorted(
-        boosted,
-        key=lambda x: x[0],
-        reverse=True
-    )
-
-    unique_results = []
-
-    seen_urls = set()
-
-    for score, page in ranked:
-
-        if score <= 0:
-            continue
-
-        if page["url"] in seen_urls:
-            continue
-
-        seen_urls.add(page["url"])
-
-        unique_results.append((score, page))
-
-    print("Top Results:")
-
-    for score, page in ranked[:5]:
-        print(score, page["title"])
-
-    results = [
-        page
-        for score, page in unique_results[:top_k]
-    ]
-
-    print("Returned:", len(results))
-
-    return results
+    return pages
 
 def build_context(query):
     
 
-    pages = search_knowledge(query, top_k=10)
+    pages = search_knowledge(query, top_k=20)
 
     if not pages:
         return ""
