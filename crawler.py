@@ -45,7 +45,10 @@ def build_search_index():
 
     _pages = []
 
+    print("Loading knowledge.json...")
     knowledge = load_knowledge()
+    print(f"Loaded {len(knowledge)} pages.")
+
 
     if not knowledge:
         print("No knowledge available.")
@@ -90,7 +93,9 @@ def build_search_index():
 
         return
 
+    print(f"Creating BM25 index from {len(corpus)} chunks...")
     _bm25 = BM25Okapi(corpus)
+    print("BM25 index created successfully.")
 
     print(f"Loaded {_bm25.corpus_size} pages into search index.")
 
@@ -339,26 +344,41 @@ def download_knowledge():
 
     url = "https://github.com/LK-coder-app/nitk-nav-proxy/releases/download/v1.0/knowledge.zip"
 
-    r = requests.get(url, stream=True, timeout=300)
+    r = requests.get(
+        url,
+        stream=True,
+        timeout=600,
+        allow_redirects=True
+    )
+
+    print("HTTP Status:", r.status_code)
+    print("Content-Length:", r.headers.get("Content-Length"))
 
     r.raise_for_status()
 
+    total = 0
+
     with open("knowledge.zip", "wb") as f:
+
         for chunk in r.iter_content(1024 * 1024):
+
             if chunk:
+
                 f.write(chunk)
 
-    print("Extracting knowledge...")
+                total += len(chunk)
 
-    with zipfile.ZipFile("knowledge.zip", "r") as zip_ref:
-        zip_ref.extractall(".")
+                print(f"Downloaded {total//1024//1024} MB")
+
+    print("Extracting...")
+
+    with zipfile.ZipFile("knowledge.zip") as z:
+
+        z.extractall(".")
 
     os.remove("knowledge.zip")
 
-    if not os.path.exists(OUTPUT_FILE):
-        raise RuntimeError("knowledge.json was not extracted correctly!")
-
-    print("Knowledge downloaded successfully.")
+    print("Knowledge download complete.")
 
 
 

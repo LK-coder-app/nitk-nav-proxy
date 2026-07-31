@@ -115,9 +115,13 @@ def initialize_knowledge():
     try:
         print("Loading NITK knowledge...")
 
+        print("Starting download...")
         download_knowledge()
+        print("Download finished.")
 
+        print("Building search index...")
         build_search_index()
+        print("Search index built.")
 
         knowledge_ready = True
 
