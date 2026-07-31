@@ -2,16 +2,14 @@ import json
 import os
 import chromadb
 
-from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
 
 with open("knowledge.json", encoding="utf-8") as f:
     pages = json.load(f)
 
 client = chromadb.PersistentClient(path="nitk_chroma")
 
-embedding_function = SentenceTransformerEmbeddingFunction(
-    model_name="all-MiniLM-L6-v2"
-)
+embedding_function = ONNXMiniLM_L6_V2()
 
 collection = client.get_or_create_collection(
     name="nitk",

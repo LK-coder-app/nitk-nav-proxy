@@ -8,7 +8,7 @@ import requests
 from bs4 import BeautifulSoup
 import zipfile
 import chromadb
-from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
 
 BASE_URL = "https://www.nitk.ac.in/"
 OUTPUT_FILE = "knowledge.json"
@@ -20,9 +20,7 @@ HEADERS = {
 # ---------- ChromaDB ----------
 client = chromadb.PersistentClient(path="nitk_chroma")
 
-embedding_function = SentenceTransformerEmbeddingFunction(
-    model_name="all-MiniLM-L6-v2"
-)
+embedding_function = ONNXMiniLM_L6_V2()
 
 collection = client.get_or_create_collection(
     name="nitk",
