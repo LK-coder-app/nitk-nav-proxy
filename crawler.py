@@ -12,7 +12,7 @@ BASE_URL = "https://www.nitk.ac.in/"
 OUTPUT_FILE = "knowledge.json"
 _bm25 = None
 _pages = None
-MAX_PAGES = 700
+MAX_PAGES = 2500
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0"
@@ -22,23 +22,62 @@ HEADERS = {
 def clean_text(text):
     return " ".join(text.split())
 
+def split_into_chunks(text, chunk_size=1200, overlap=250):
+
+    chunks = []
+
+    start = 0
+
+    while start < len(text):
+
+        end = start + chunk_size
+
+        chunks.append(text[start:end])
+
+        start += chunk_size - overlap
+
+    return chunks
+
 
 def build_search_index():
     global _bm25, _pages
 
-    _pages = load_knowledge()
+    _pages = []
+
+    knowledge = load_knowledge()
 
     corpus = []
 
-    for page in _pages:
-        text = (
-            page["title"] + " " +
-            page["text"]
-        ).lower()
+    seen_chunks = set()
 
-        corpus.append(
-            re.findall(r'\w+', text)
-        )
+    for page in knowledge:
+
+        chunks = split_into_chunks(page["text"])
+
+        for i, chunk in enumerate(chunks):
+
+            chunk_key = clean_text(chunk).lower()
+
+            if chunk_key in seen_chunks:
+                continue
+
+            seen_chunks.add(chunk_key)
+
+            record = {
+                "title": page["title"],
+                "url": page["url"],
+                "chunk": i,
+                "text": chunk
+            }
+
+            _pages.append(record)
+
+            corpus.append(
+                re.findall(
+                    r'\w+',
+                    (page["title"] + " " + chunk).lower()
+                )
+            )
 
     _bm25 = BM25Okapi(corpus)
 
@@ -49,7 +88,7 @@ def extract_text(html):
     soup = BeautifulSoup(html, "html.parser")
 
     # Remove unwanted tags
-    for tag in soup(["script", "style", "noscript", "header", "footer", "nav", "aside"]):
+    for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
 
     title = soup.title.get_text(strip=True) if soup.title else ""
@@ -88,6 +127,36 @@ def extract_text(html):
             for line in soup.get_text("\n").splitlines()
             if line.strip()
         )
+    
+    # ==========================
+    # Extract all HTML tables
+    # ==========================
+
+    tables = []
+
+    for table in soup.find_all("table"):
+
+        rows = []
+
+        for tr in table.find_all("tr"):
+
+            cols = [
+                td.get_text(" ", strip=True)
+                for td in tr.find_all(["td", "th"])
+            ]
+
+            if cols:
+                rows.append(" | ".join(cols))
+
+        if rows:
+            tables.append("\n".join(rows))
+
+    if tables:
+        text += "\n\n" + "\n\n".join(tables)
+
+    # ==========================
+    # Continue with duplicate removal
+    # ==========================
 
     lines = []
     seen = set()
@@ -98,8 +167,12 @@ def extract_text(html):
         if len(line) < 2:
             continue
 
-        if line in seen:
+        normalized = line.lower()
+
+        if normalized in seen:
             continue
+
+        seen.add(normalized)
 
         seen.add(line)
         lines.append(line)
@@ -112,9 +185,23 @@ def extract_text(html):
 def crawl():
 
     visited = set()
-    queue = deque([BASE_URL])
+    SEED_URLS = [
+        "https://www.nitk.ac.in/",
+        "https://cse.nitk.ac.in/",
+        "https://ece.nitk.ac.in/",
+        "https://eee.nitk.ac.in/",
+        "https://civil.nitk.ac.in/",
+        "https://mech.nitk.ac.in/",
+        "https://chemical.nitk.ac.in/",
+        "https://mining.nitk.ac.in/",
+        "https://placement.nitk.ac.in/",
+    ]
+
+    queue = deque(SEED_URLS)
 
     pages = []
+
+    seen_pages = set()
 
     while queue and len(visited) < MAX_PAGES:
 
@@ -125,11 +212,13 @@ def crawl():
 
         visited.add(url)
 
+        print(f"Queue size: {len(queue)}")
+
         print("Crawling:", url)
 
         try:
 
-            r = requests.get(url, headers=HEADERS, timeout=15)
+            r = requests.get(url, headers=HEADERS, timeout=30)
 
             if r.status_code != 200:
                 continue
@@ -138,11 +227,24 @@ def crawl():
 
             if len(text) > 300:
 
-                pages.append({
-                    "title": title,
-                    "url": url,
-                    "text": text
-                })
+                signature = (
+                    title.strip().lower(),
+                    text[:1000].strip().lower()
+                )
+
+                if signature not in seen_pages:
+
+                    seen_pages.add(signature)
+
+                    page_parsed = urlparse(url)
+
+                    pages.append({
+                        "title": title,
+                        "url": url,
+                        "domain": page_parsed.netloc,
+                        "path": page_parsed.path,
+                        "text": text
+                    })
 
             soup = BeautifulSoup(r.text, "html.parser")
 
@@ -152,12 +254,31 @@ def crawl():
 
                 parsed = urlparse(link)
 
-                if parsed.netloc != "www.nitk.ac.in":
+                # Allow every NITK subdomain
+                if not parsed.netloc.endswith("nitk.ac.in"):
                     continue
 
+                # Remove query parameters and fragments
                 link = parsed.scheme + "://" + parsed.netloc + parsed.path
 
+                if parsed.query:
+                    link += "?" + parsed.query
+
+                # Skip PDFs for now
                 if link.endswith(".pdf"):
+                    continue
+
+                # Skip unwanted pages
+                SKIP_PATTERNS = [
+                    "/search",
+                    "/login",
+                    "/feed",
+                    "/user",
+                    "/comment",
+                    "/print",
+                ]
+
+                if any(pattern in link.lower() for pattern in SKIP_PATTERNS):
                     continue
 
                 if link not in visited:
@@ -168,6 +289,13 @@ def crawl():
             print(e)
 
         time.sleep(0.3)
+
+
+    print("=" * 60)
+    print("Visited:", len(visited))
+    print("Saved:", len(pages))
+    print("Remaining queue:", len(queue))
+    print("=" * 60)
 
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
 
@@ -209,27 +337,47 @@ def search_knowledge(query, top_k=5):
     # -------- Query Expansion --------
 
     REPLACEMENTS = {
-        "placements": "placement",
-        "placements": "placement",
 
-        "director email": "director office",
-        "director mail": "director office",
+        "placements": "placement",
+        "placement statistics": "placement report",
+        "placement record": "placement report",
+        "placement data": "placement report",
 
-        "career development centre": "career development center",
-        "career development center": "career development center",
         "cdc": "career development center",
+        "career centre": "career development center",
+
+        "hod": "head of department",
+        "head": "head of department",
+
+        "prof": "professor",
+        "faculty": "staff professor",
+
+        "staff": "faculty",
+        "teachers": "faculty",
+
+        "hostels": "hostel",
+        "messes": "mess",
+
+        "admission": "admissions",
+
+        "btech": "undergraduate",
+        "mtech": "postgraduate",
+
+        "phd": "doctor of philosophy",
 
         "cse": "computer science",
         "ece": "electronics",
         "eee": "electrical",
         "mech": "mechanical engineering",
-        "mechanical": "mechanical engineering",
+        "civil": "civil engineering",
+        "chem": "chemical engineering",
 
-        "civil dept": "civil engineering",
-        "chemical dept": "chemical engineering",
+        "students": "student",
+        "labs": "laboratory",
 
-        "hostels": "hostel",
-        "messes": "mess",
+        "director mail": "director office",
+        "director email": "director office",
+
     }
 
     for old, new in REPLACEMENTS.items():
@@ -265,6 +413,13 @@ def search_knowledge(query, top_k=5):
             if token in title:
                 boost += 2
 
+        text = page["text"].lower()
+
+        for token in query_tokens:
+
+            if token in text:
+                boost += 0.3
+
         boosted.append((score + boost, page))
 
     ranked = sorted(
@@ -273,12 +428,31 @@ def search_knowledge(query, top_k=5):
         reverse=True
     )
 
+    unique_results = []
+
+    seen_urls = set()
+
+    for score, page in ranked:
+
+        if score <= 0:
+            continue
+
+        if page["url"] in seen_urls:
+            continue
+
+        seen_urls.add(page["url"])
+
+        unique_results.append((score, page))
+
     print("Top Results:")
 
     for score, page in ranked[:5]:
         print(score, page["title"])
 
-    results = [page for score, page in ranked[:top_k] if score > 0]
+    results = [
+        page
+        for score, page in unique_results[:top_k]
+    ]
 
     print("Returned:", len(results))
 
@@ -287,7 +461,7 @@ def search_knowledge(query, top_k=5):
 def build_context(query):
     
 
-    pages = search_knowledge(query, top_k=8)
+    pages = search_knowledge(query, top_k=10)
 
     if not pages:
         return ""
