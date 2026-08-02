@@ -27,6 +27,7 @@ collection = client.get_or_create_collection(
     embedding_function=embedding_function
 )
 # ------------------------------
+print("Collection count:", collection.count())
 
 def clean_text(text):
     return " ".join(text.split())
@@ -50,6 +51,13 @@ def split_into_chunks(text, chunk_size=1200, overlap=250):
 
 def build_search_index():
     print("Using ChromaDB search index.")
+    print("Collection count:", collection.count())
+
+    if collection.count() == 0:
+        raise RuntimeError("ChromaDB is empty!")
+
+def get_collection_count():
+    return collection.count()
 
 
 def extract_text(html):
@@ -317,6 +325,7 @@ def download_knowledge():
 
     with open("knowledge.zip", "wb") as f:
 
+
         for chunk in r.iter_content(1024 * 1024):
 
             if chunk:
@@ -326,6 +335,8 @@ def download_knowledge():
                 total += len(chunk)
 
                 print(f"Downloaded {total//1024//1024} MB")
+
+    print("File downloaded.")
 
     print("Extracting...")
 
@@ -340,6 +351,8 @@ def download_knowledge():
 
 
 def search_knowledge(query, top_k=10):
+
+    print("Collection count:", collection.count())
 
     results = collection.query(
         query_texts=[query],

@@ -22,7 +22,8 @@ from urllib.parse import quote
 from crawler import (
     build_search_index,
     refresh_knowledge,
-    download_knowledge
+    download_knowledge,
+    get_collection_count
 )
 
 from flask import Flask, request, jsonify
@@ -113,27 +114,43 @@ def initialize_knowledge():
     global knowledge_ready
 
     try:
-        print("Loading NITK knowledge...")
+        print("=" * 60)
+        print("Initializing NITK Knowledge Base...")
 
-        print("Starting download...")
-        download_knowledge()
-        print("Download finished.")
+        # Step 1 - Download knowledge.json only if missing
+        if not os.path.exists("knowledge.json"):
+            print("knowledge.json not found.")
+            download_knowledge()
+        else:
+            print("knowledge.json found.")
 
-        print("Building search index...")
-        build_search_index()
-        print("Search index built.")
+        # Step 2 - Check ChromaDB
+        if get_collection_count() == 0:
+
+            print("ChromaDB is empty.")
+            print("Building ChromaDB...")
+
+            import build_chroma
+            build_chroma.build_database()
+
+            print("ChromaDB created.")
+
+        else:
+            print(f"ChromaDB already contains {get_collection_count()} documents.")
 
         knowledge_ready = True
 
-        print("Knowledge loaded successfully.")
+        print("Knowledge initialization completed.")
+        print("=" * 60)
 
     except Exception as e:
-        print("Knowledge initialization failed:", e)
+        print("Knowledge initialization failed:")
+        print(e)
 
-    threading.Thread(
-        target=auto_refresh,
-        daemon=True
-    ).start()
+    #threading.Thread(
+        #target=auto_refresh,
+        #daemon=True
+    #).start()
 
 def search_nitk_page(query):
     """
