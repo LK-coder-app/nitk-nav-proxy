@@ -350,6 +350,42 @@ def download_knowledge():
 
 
 
+def download_chroma():
+
+    if os.path.exists("nitk_chroma"):
+        print("ChromaDB already exists.")
+        return
+
+    print("Downloading ChromaDB from GitHub Release...")
+
+    url = "https://github.com/LK-coder-app/nitk-nav-proxy/releases/download/v1.0/nitk_chroma.zip"
+
+    r = requests.get(
+        url,
+        stream=True,
+        timeout=600,
+        allow_redirects=True
+    )
+
+    print("HTTP Status:", r.status_code)
+
+    r.raise_for_status()
+
+    with open("nitk_chroma.zip", "wb") as f:
+        for chunk in r.iter_content(1024 * 1024):
+            if chunk:
+                f.write(chunk)
+
+    print("Extracting ChromaDB...")
+
+    with zipfile.ZipFile("nitk_chroma.zip") as z:
+        z.extractall(".")
+
+    os.remove("nitk_chroma.zip")
+
+    print("ChromaDB download complete.")
+
+
 def search_knowledge(query, top_k=10):
 
     print("Collection count:", collection.count())

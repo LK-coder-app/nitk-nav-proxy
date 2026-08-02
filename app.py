@@ -25,7 +25,7 @@ from crawler import (
     download_knowledge,
     get_collection_count
 )
-
+from crawler import download_chroma
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from crawler import build_context
@@ -125,15 +125,10 @@ def initialize_knowledge():
             print("knowledge.json found.")
 
         # Step 2 - Check ChromaDB
-        if get_collection_count() == 0:
+        if not os.path.exists("nitk_chroma"):
+            download_chroma()
 
-            print("ChromaDB is empty.")
-            print("Building ChromaDB...")
-
-            import build_chroma
-            build_chroma.build_database()
-
-            print("ChromaDB created.")
+            print(f"Collection count: {collection.count()}")
 
         else:
             print(f"ChromaDB already contains {get_collection_count()} documents.")
