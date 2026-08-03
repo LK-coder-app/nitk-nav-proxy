@@ -20,14 +20,27 @@ HEADERS = {
 # ---------- ChromaDB ----------
 client = chromadb.PersistentClient(path="nitk_chroma")
 
+import os
+
+print("=" * 60)
+print("DEBUG INFORMATION")
+print("Current working directory:", os.getcwd())
+print("Chroma absolute path:", os.path.abspath("nitk_chroma"))
+print("SQLite exists:", os.path.exists("nitk_chroma/chroma.sqlite3"))
+print("=" * 60)
+
 embedding_function = ONNXMiniLM_L6_V2()
 
 collection = client.get_or_create_collection(
     name="nitk",
     embedding_function=embedding_function
 )
-# ------------------------------
+
+print("Collections:", client.list_collections())
+print("Collection name:", collection.name)
 print("Collection count:", collection.count())
+print("=" * 60)
+# ------------------------------
 
 def clean_text(text):
     return " ".join(text.split())
@@ -353,6 +366,13 @@ def download_knowledge():
     with zipfile.ZipFile("knowledge.zip") as z:
 
         z.extractall(".")
+
+    import os
+
+    print("Files after extraction:")
+
+    for root, dirs, files in os.walk("nitk_chroma"):
+        print(root, files)
 
     os.remove("knowledge.zip")
 
