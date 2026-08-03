@@ -356,6 +356,13 @@ def download_knowledge():
 
     os.remove("knowledge.zip")
 
+    print("Checking extracted knowledge.json...")
+
+    print("Exists:", os.path.exists("knowledge.json"))
+
+    if os.path.exists("knowledge.json"):
+        print("Size:", os.path.getsize("knowledge.json"))
+
     print("Knowledge download complete.")
 
 
@@ -397,6 +404,15 @@ def download_chroma():
         z.extractall(".")
 
     os.remove("nitk_chroma.zip")
+
+    print("Checking extracted ChromaDB...")
+
+    print("SQLite exists:", os.path.exists("nitk_chroma/chroma.sqlite3"))
+
+    if os.path.exists("nitk_chroma/chroma.sqlite3"):
+        print("SQLite size:", os.path.getsize("nitk_chroma/chroma.sqlite3"))
+
+    print("Collection count after extraction:", get_collection_count())
 
     print("ChromaDB download complete.")
 
