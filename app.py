@@ -129,14 +129,19 @@ def initialize_knowledge():
         print("Step 2: knowledge.json OK")
         # Step 2 - Check ChromaDB
         print("Step 3: Checking ChromaDB")
-        if not os.path.exists("nitk_chroma"):
-            download_chroma()
-            print("Step 4: Chroma download finished")
+        count = get_collection_count()
 
-            print(f"Collection count: {collection.count()}")
+        print(f"Collection count: {count}")
+
+        if count == 0:
+            print("Downloading ChromaDB...")
+            download_chroma()
+
+            count = get_collection_count()
+            print(f"Collection count after download: {count}")
 
         else:
-            print(f"ChromaDB already contains {get_collection_count()} documents.")
+            print(f"ChromaDB already contains {count} documents.")
 
         print("Step 5: Setting knowledge_ready")
 
@@ -153,6 +158,11 @@ def initialize_knowledge():
         #target=auto_refresh,
         #daemon=True
     #).start()
+
+
+
+# Initialize knowledge base when the app is imported by Gunicorn
+initialize_knowledge()
 
 def search_nitk_page(query):
     """
