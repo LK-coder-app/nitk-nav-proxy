@@ -362,9 +362,14 @@ def download_knowledge():
 
 def download_chroma():
 
-    if os.path.exists("nitk_chroma"):
-        print("ChromaDB already exists.")
+    if get_collection_count() > 0:
+        print("ChromaDB already populated.")
         return
+
+    # Remove empty folder if it exists
+    if os.path.exists("nitk_chroma"):
+        import shutil
+        shutil.rmtree("nitk_chroma")
 
     print("Downloading ChromaDB from GitHub Release...")
 
