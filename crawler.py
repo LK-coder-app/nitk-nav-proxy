@@ -367,13 +367,6 @@ def download_knowledge():
 
         z.extractall(".")
 
-    import os
-
-    print("Files after extraction:")
-
-    for root, dirs, files in os.walk("nitk_chroma"):
-        print(root, files)
-
     os.remove("knowledge.zip")
 
     print("Checking extracted knowledge.json...")
@@ -422,6 +415,13 @@ def download_chroma():
 
     with zipfile.ZipFile("nitk_chroma.zip") as z:
         z.extractall(".")
+
+    print("Listing extracted files...")
+
+    for root, dirs, files in os.walk("nitk_chroma"):
+        print(root)
+        for file in files:
+            print("   ", file)
 
     os.remove("nitk_chroma.zip")
 
