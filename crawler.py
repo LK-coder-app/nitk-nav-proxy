@@ -309,12 +309,20 @@ def download_knowledge():
 
     url = "https://github.com/LK-coder-app/nitk-nav-proxy/releases/download/v1.0/knowledge.zip"
 
-    r = requests.get(
-        url,
-        stream=True,
-        timeout=600,
-        allow_redirects=True
-    )
+    print("URL:", url)
+    print("Starting requests.get()...")
+
+    try:
+        r = requests.get(
+            url,
+            stream=True,
+            timeout=60,
+            allow_redirects=True
+        )
+        print("requests.get() completed.")
+    except Exception as e:
+        print("requests.get() failed:", e)
+        raise
 
     print("HTTP Status:", r.status_code)
     print("Content-Length:", r.headers.get("Content-Length"))
@@ -322,6 +330,8 @@ def download_knowledge():
     r.raise_for_status()
 
     total = 0
+
+    print("Starting file write...")
 
     with open("knowledge.zip", "wb") as f:
 

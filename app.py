@@ -117,6 +117,8 @@ def initialize_knowledge():
         print("=" * 60)
         print("Initializing NITK Knowledge Base...")
 
+        print("Step 1: Checking knowledge.json")
+
         # Step 1 - Download knowledge.json only if missing
         if not os.path.exists("knowledge.json"):
             print("knowledge.json not found.")
@@ -124,14 +126,19 @@ def initialize_knowledge():
         else:
             print("knowledge.json found.")
 
+        print("Step 2: knowledge.json OK")
         # Step 2 - Check ChromaDB
+        print("Step 3: Checking ChromaDB")
         if not os.path.exists("nitk_chroma"):
             download_chroma()
+            print("Step 4: Chroma download finished")
 
             print(f"Collection count: {collection.count()}")
 
         else:
             print(f"ChromaDB already contains {get_collection_count()} documents.")
+
+        print("Step 5: Setting knowledge_ready")
 
         knowledge_ready = True
 
