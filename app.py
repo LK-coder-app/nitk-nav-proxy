@@ -38,6 +38,8 @@ app = Flask(__name__)
 CORS(app)
 knowledge_ready = False
 
+initialize_knowledge()  
+
 # ── Environment variables (set these in Render dashboard) ─────────────────
 ORS_KEY        = os.environ.get('ORS_KEY', '')
 TWILIO_SID     = os.environ.get('TWILIO_SID', '')

@@ -341,84 +341,45 @@ def load_knowledge():
 
 def download_knowledge():
 
-    if os.path.exists(OUTPUT_FILE):
-        print("Knowledge file already exists.")
+    if os.path.exists("knowledge.json"):
+        print("knowledge.json already exists.")
         return
-
-    print("Downloading knowledge from GitHub Release...")
 
     url = "https://github.com/LK-coder-app/nitk-nav-proxy/releases/download/v1.0/knowledge.zip"
 
-    print("URL:", url)
-    print("Starting requests.get()...")
+    print("Downloading:", url)
 
-    try:
-        print("About to connect to GitHub...")
-        import socket
-        print("DNS:", socket.gethostbyname("github.com"))
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
 
-        headers = {
-            "User-Agent": "Mozilla/5.0"
-        }
+    with requests.get(
+        url,
+        headers=headers,
+        stream=True,
+        allow_redirects=True,
+        timeout=(30, 300)
+    ) as r:
 
-        r = requests.get(
-            url,
-            headers=headers,
-            stream=True,
-            allow_redirects=True,
-            timeout=(15, 300)
-        )
-
-        print("Connected.")
-        print("Final URL:", r.url)
         print("Status:", r.status_code)
-        print("Headers:", dict(r.headers))
-    except Exception as e:
-        print("requests.get() failed:", e)
-        raise
 
-    print("HTTP Status:", r.status_code)
-    print("Content-Length:", r.headers.get("Content-Length"))
+        r.raise_for_status()
 
-    r.raise_for_status()
+        with open("knowledge.zip", "wb") as f:
 
-    total = 0
+            for chunk in r.iter_content(chunk_size=1024 * 1024):
 
-    print("Starting file write...")
+                if chunk:
+                    f.write(chunk)
 
-    with open("knowledge.zip", "wb") as f:
-        print("Starting download...")
-
-
-        for chunk in r.iter_content(1024 * 1024):
-
-            if chunk:
-                print("Received chunk:", len(chunk))
-
-                f.write(chunk)
-
-                total += len(chunk)
-
-                print(f"Downloaded {total//1024//1024} MB")
-
-    print("File downloaded.")
-
-    print("Extracting...")
+    print("Download complete.")
 
     with zipfile.ZipFile("knowledge.zip") as z:
-
         z.extractall(".")
 
     os.remove("knowledge.zip")
 
-    print("Checking extracted knowledge.json...")
-
-    print("Exists:", os.path.exists("knowledge.json"))
-
-    if os.path.exists("knowledge.json"):
-        print("Size:", os.path.getsize("knowledge.json"))
-
-    print("Knowledge download complete.")
+    print("knowledge.json extracted.")
 
 
 
