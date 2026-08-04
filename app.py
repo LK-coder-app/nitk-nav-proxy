@@ -30,7 +30,6 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from crawler import build_context
 from dotenv import load_dotenv
-from build_chroma import build_database
 import chromadb
 
 load_dotenv()
@@ -131,23 +130,31 @@ def initialize_knowledge():
         print("Step 2: knowledge.json OK")
         # Step 2 - Check ChromaDB
         print("Step 3: Checking ChromaDB")
-        count = get_collection_count()
+        count = collection.count()
 
         print(f"Collection count: {count}")
 
         if count == 0:
             print("Downloading ChromaDB...")
             download_chroma()
+
+            print("\nReopening ChromaDB...")
+
             global client, collection
 
             client = chromadb.PersistentClient(path="nitk_chroma")
+
+            print("Collections after reopening:")
+            print(client.list_collections())
 
             collection = client.get_collection(
                 name="nitk",
                 embedding_function=embedding_function
             )
-            count = get_collection_count()
-            print(f"Collection count after download: {count}")
+
+            count = collection.count()
+
+            print(f"Collection count after reopening: {count}")
 
         if count > 0:
             knowledge_ready = True

@@ -18,7 +18,8 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0"
 }
 # ---------- ChromaDB ----------
-client = chromadb.PersistentClient(path="nitk_chroma")
+client = None
+collection = None
 
 import os
 
@@ -31,11 +32,6 @@ print("=" * 60)
 
 embedding_function = ONNXMiniLM_L6_V2()
 
-collection = client.get_or_create_collection(
-    name="nitk",
-    embedding_function=embedding_function
-)
-
 print("=" * 60)
 print("Collection object:", collection)
 
@@ -46,7 +42,19 @@ print(collection.peek(limit=3))
 
 print("=" * 60)
 # ------------------------------
+def initialize_chroma():
+    global client, collection
 
+    client = chromadb.PersistentClient(path="nitk_chroma")
+
+    collection = client.get_collection(
+        name="nitk",
+        embedding_function=embedding_function
+    )
+
+    print("Collection initialized")
+    print("Collection count:", collection.count())
+    
 def clean_text(text):
     return " ".join(text.split())
 
