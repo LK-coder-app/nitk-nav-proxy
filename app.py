@@ -137,40 +137,30 @@ def initialize_knowledge():
         if count == 0:
             print("Downloading ChromaDB...")
             download_chroma()
-
-            client = chromadb.PersistentClient(path="nitk_chroma")
-
-            collection = client.get_collection(
-                name="nitk",
-                embedding_function=embedding_function
-            )
-
             count = get_collection_count()
             print(f"Collection count after download: {count}")
 
-        else:
-            print(f"ChromaDB already contains {count} documents.")
-
-            print("Step 5: Setting knowledge_ready")
-
+        if count > 0:
             knowledge_ready = True
-
             print("Knowledge initialization completed.")
-            print("=" * 60)
+        else:
+            print("⚠️ ChromaDB still empty after download attempt — check logs above.")
+
+        print("=" * 60)
 
     except Exception as e:
         print("Knowledge initialization failed:")
         print(e)
 
-    #threading.Thread(
-        #target=auto_refresh,
-        #daemon=True
-    #).start()
+    threading.Thread(
+        target=auto_refresh,
+        daemon=True
+    ).start()
 
 
 
 # Initialize knowledge base when the app is imported by Gunicorn
-initialize_knowledge()
+#initialize_knowledge()
 
 def search_nitk_page(query):
     """
