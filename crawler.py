@@ -75,7 +75,19 @@ def build_search_index():
         raise RuntimeError("ChromaDB is empty!")
 
 def get_collection_count():
-    return collection.count()
+    try:
+        client = chromadb.PersistentClient(path="nitk_chroma")
+
+        collection = client.get_collection(
+            name="nitk",
+            embedding_function=embedding_function
+        )
+
+        return collection.count()
+
+    except Exception as e:
+        print("get_collection_count() error:", e)
+        return 0
 
 
 def extract_text(html):
