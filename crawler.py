@@ -354,6 +354,8 @@ def download_knowledge():
 
     try:
         print("About to connect to GitHub...")
+        import socket
+        print("DNS:", socket.gethostbyname("github.com"))
 
         headers = {
             "User-Agent": "Mozilla/5.0"
@@ -362,14 +364,15 @@ def download_knowledge():
         r = requests.get(
             url,
             headers=headers,
-            timeout=60
+            stream=True,
+            allow_redirects=True,
+            timeout=(15, 300)
         )
 
         print("Connected.")
-        print("Status:", r.status_code)
-        print("Headers received")
         print("Final URL:", r.url)
-        print("Content-Length:", r.headers.get("Content-Length"))
+        print("Status:", r.status_code)
+        print("Headers:", dict(r.headers))
     except Exception as e:
         print("requests.get() failed:", e)
         raise
