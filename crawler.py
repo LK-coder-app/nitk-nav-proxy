@@ -49,13 +49,19 @@ def initialize_chroma():
 
     client = chromadb.PersistentClient(path="nitk_chroma")
 
-    collection = client.get_collection(
-        name="nitk",
-        embedding_function=embedding_function
-    )
+    try:
+        collection = client.get_collection(
+            name="nitk",
+            embedding_function=embedding_function
+        )
 
-    print("Collection initialized")
-    print("Collection count:", collection.count())
+        print("Collection initialized")
+        print("Collection count:", collection.count())
+
+    except Exception as e:
+        print("Chroma collection not found.")
+        print(e)
+        collection = None
 
 def clean_text(text):
     return " ".join(text.split())

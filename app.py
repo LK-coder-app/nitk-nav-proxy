@@ -38,7 +38,6 @@ app = Flask(__name__)
 CORS(app)
 knowledge_ready = False
 
-initialize_knowledge()  
 
 # ── Environment variables (set these in Render dashboard) ─────────────────
 ORS_KEY        = os.environ.get('ORS_KEY', '')
@@ -133,7 +132,14 @@ def initialize_knowledge():
         print("Step 2: knowledge.json OK")
         # Step 2 - Check ChromaDB
         print("Step 3: Checking ChromaDB")
-        count = collection.count()
+        initialize_chroma()
+
+        if collection is None:
+            count = 0
+        else:
+            count = collection.count()
+
+        print(f"Collection count: {count}")
 
         print(f"Collection count: {count}")
 
@@ -175,10 +181,12 @@ def initialize_knowledge():
         daemon=True
     ).start()
 
-
-
+threading.Thread(
+    target=initialize_knowledge,
+    daemon=True
+).start()
 # Initialize knowledge base when the app is imported by Gunicorn
-#initialize_knowledge()
+
 
 def search_nitk_page(query):
     """
@@ -272,10 +280,6 @@ Below is information retrieved live from NITK's official website. Base your answ
 it. If it doesn't cover the question, say so honestly and suggest checking nitk.ac.in
 directly — never invent specifics that aren't supported by the retrieved text."""
 
-threading.Thread(
-    target=initialize_knowledge,
-    daemon=True
-).start()
 # ─────────────────────────────────────────────────────────────────────────────
 # ORS ROUTING
 # ─────────────────────────────────────────────────────────────────────────────
