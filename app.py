@@ -830,6 +830,38 @@ def knowledge_status():
         "ready": len(pages) > 0,
         "pages": len(pages)
     })
+
+import sqlite3
+
+@app.route("/debug-db")
+def debug_db():
+    conn = sqlite3.connect("nitk_chroma/chroma.sqlite3")
+    cur = conn.cursor()
+
+    tables = cur.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()
+
+    embeddings = cur.execute(
+        "SELECT COUNT(*) FROM embeddings"
+    ).fetchone()[0]
+
+    collections = cur.execute(
+        "SELECT id, name FROM collections"
+    ).fetchall()
+
+    segments = cur.execute(
+        "SELECT COUNT(*) FROM segments"
+    ).fetchone()[0]
+
+    conn.close()
+
+    return jsonify({
+        "tables": tables,
+        "embeddings": embeddings,
+        "collections": collections,
+        "segments": segments
+    })
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8081))
