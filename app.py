@@ -151,12 +151,12 @@ def initialize_knowledge():
         else:
             print(f"ChromaDB already contains {count} documents.")
 
-        print("Step 5: Setting knowledge_ready")
+            print("Step 5: Setting knowledge_ready")
 
-        knowledge_ready = True
+            knowledge_ready = True
 
-        print("Knowledge initialization completed.")
-        print("=" * 60)
+            print("Knowledge initialization completed.")
+            print("=" * 60)
 
     except Exception as e:
         print("Knowledge initialization failed:")
