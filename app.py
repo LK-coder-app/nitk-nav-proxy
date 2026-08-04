@@ -794,37 +794,53 @@ def knowledge_status():
         "pages": len(pages)
     })
 
-import sqlite3
-
 @app.route("/debug-db")
 def debug_db():
+
+    import sqlite3
+
     conn = sqlite3.connect("nitk_chroma/chroma.sqlite3")
     cur = conn.cursor()
 
-    tables = cur.execute(
-        "SELECT name FROM sqlite_master WHERE type='table'"
-    ).fetchall()
+    cur.execute("""
+        SELECT id, scope
+        FROM segments
+    """)
 
-    embeddings = cur.execute(
-        "SELECT COUNT(*) FROM embeddings"
-    ).fetchone()[0]
+    segments = cur.fetchall()
 
-    collections = cur.execute(
-        "SELECT id, name FROM collections"
-    ).fetchall()
+    cur.execute("""
+        SELECT segment_id,
+               COUNT(*)
+        FROM embeddings
+        GROUP BY segment_id
+    """)
 
-    segments = cur.execute(
-        "SELECT COUNT(*) FROM segments"
-    ).fetchone()[0]
+    counts = cur.fetchall()
 
     conn.close()
 
-    return jsonify({
-        "tables": tables,
-        "embeddings": embeddings,
-        "collections": collections,
-        "segments": segments
-    })
+    return {
+        "segments": segments,
+        "embedding_counts": counts
+    }
+
+@app.route("/debug-files")
+def debug_files():
+
+    import os
+
+    result = []
+
+    for root, dirs, files in os.walk("nitk_chroma"):
+        for f in files:
+            path = os.path.join(root, f)
+            result.append({
+                "file": path,
+                "size": os.path.getsize(path)
+            })
+
+    return result
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8081))
