@@ -365,8 +365,11 @@ def download_knowledge():
             timeout=60
         )
 
-        print("Connected to GitHub.")
-        print("requests.get() completed.")
+    print("Connected.")
+    print("Status:", r.status_code)
+    print("Headers received")
+    print("Final URL:", r.url)
+    print("Content-Length:", r.headers.get("Content-Length"))
     except Exception as e:
         print("requests.get() failed:", e)
         raise
@@ -381,11 +384,13 @@ def download_knowledge():
     print("Starting file write...")
 
     with open("knowledge.zip", "wb") as f:
+        print("Starting download...")
 
 
         for chunk in r.iter_content(1024 * 1024):
 
             if chunk:
+                print("Received chunk:", len(chunk))
 
                 f.write(chunk)
 
