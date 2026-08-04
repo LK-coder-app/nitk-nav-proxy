@@ -365,11 +365,11 @@ def download_knowledge():
             timeout=60
         )
 
-    print("Connected.")
-    print("Status:", r.status_code)
-    print("Headers received")
-    print("Final URL:", r.url)
-    print("Content-Length:", r.headers.get("Content-Length"))
+        print("Connected.")
+        print("Status:", r.status_code)
+        print("Headers received")
+        print("Final URL:", r.url)
+        print("Content-Length:", r.headers.get("Content-Length"))
     except Exception as e:
         print("requests.get() failed:", e)
         raise
