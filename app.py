@@ -113,6 +113,7 @@ def auto_refresh():
         
 def initialize_knowledge():
     global knowledge_ready
+    global client, collection
 
     try:
         print("=" * 60)
@@ -140,7 +141,6 @@ def initialize_knowledge():
 
             print("\nReopening ChromaDB...")
 
-            global client, collection
 
             client = chromadb.PersistentClient(path="nitk_chroma")
 
