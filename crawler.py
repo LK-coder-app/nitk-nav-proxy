@@ -36,9 +36,14 @@ collection = client.get_or_create_collection(
     embedding_function=embedding_function
 )
 
-print("Collections:", client.list_collections())
-print("Collection name:", collection.name)
-print("Collection count:", collection.count())
+print("=" * 60)
+print("Collection object:", collection)
+
+print("Count:", collection.count())
+
+print("Peek:")
+print(collection.peek(limit=3))
+
 print("=" * 60)
 # ------------------------------
 
