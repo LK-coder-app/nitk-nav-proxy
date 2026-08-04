@@ -137,7 +137,7 @@ def initialize_knowledge():
         if count == 0:
             print("Downloading ChromaDB...")
             print("Building ChromaDB from knowledge.json...")
-                build_database()
+            build_database()
 
             client = chromadb.PersistentClient(path="nitk_chroma")
 
