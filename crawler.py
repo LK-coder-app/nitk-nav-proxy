@@ -35,10 +35,12 @@ embedding_function = ONNXMiniLM_L6_V2()
 print("=" * 60)
 print("Collection object:", collection)
 
-print("Count:", collection.count())
-
-print("Peek:")
-print(collection.peek(limit=3))
+if collection is not None:
+    print("Count:", collection.count())
+    print("Peek:")
+    print(collection.peek(limit=3))
+else:
+    print("Collection not initialized yet.")
 
 print("=" * 60)
 # ------------------------------
@@ -54,7 +56,7 @@ def initialize_chroma():
 
     print("Collection initialized")
     print("Collection count:", collection.count())
-    
+
 def clean_text(text):
     return " ".join(text.split())
 
