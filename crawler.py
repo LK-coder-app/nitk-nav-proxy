@@ -360,28 +360,46 @@ def download_knowledge():
     }
 
     with requests.get(
-        url,
-        headers=headers,
-        stream=True,
-        allow_redirects=True,
-        timeout=(30, 300)
-    ) as r:
+    url,
+    headers=headers,
+    stream=True,
+    allow_redirects=True,
+    timeout=(30, 300)
+) as r:
 
-        print("Status:", r.status_code)
+    print("Connected to GitHub")
+    print("Status:", r.status_code)
+    print("Final URL:", r.url)
+    print("Content-Length:", r.headers.get("Content-Length"))
 
-        r.raise_for_status()
+    r.raise_for_status()
 
-        with open("knowledge.zip", "wb") as f:
+    downloaded = 0
 
-            for chunk in r.iter_content(chunk_size=1024 * 1024):
+    with open("knowledge.zip", "wb") as f:
 
-                if chunk:
-                    f.write(chunk)
+        for chunk in r.iter_content(chunk_size=1024 * 1024):
 
-    print("Download complete.")
+            if not chunk:
+                continue
+
+            f.write(chunk)
+
+            downloaded += len(chunk)
+
+            print(
+                f"Downloaded {downloaded/1024/1024:.2f} MB",
+                flush=True
+            )
+
+    print("Finished downloading file", flush=True)
+
+    print("Starting extraction...", flush=True)
 
     with zipfile.ZipFile("knowledge.zip") as z:
         z.extractall(".")
+
+        print("Extraction finished", flush=True)
 
     os.remove("knowledge.zip")
 
