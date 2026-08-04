@@ -505,43 +505,6 @@ def nl_destination():
         print(f'❌ NL destination error: {e}')
         return jsonify({'buildingId': None, 'reply': '', 'error': str(e)})
 
-@app.route("/debug-db")
-def debug_db():
-    import sqlite3
-    import chromadb
-    from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
-
-    result = {}
-
-    # SQLite inspection
-    conn = sqlite3.connect("nitk_chroma/chroma.sqlite3")
-    cur = conn.cursor()
-
-    cur.execute("SELECT COUNT(*) FROM embeddings")
-    result["sqlite_embeddings"] = cur.fetchone()[0]
-
-    cur.execute("SELECT COUNT(*) FROM collections")
-    result["sqlite_collections"] = cur.fetchone()[0]
-
-    conn.close()
-
-    # Chroma inspection
-    client = chromadb.PersistentClient(path="nitk_chroma")
-    embedding_function = ONNXMiniLM_L6_V2()
-
-    collection = client.get_collection(
-        name="nitk",
-        embedding_function=embedding_function
-    )
-
-    result["collection_count"] = collection.count()
-
-    try:
-        result["peek"] = collection.peek(limit=3)
-    except Exception as e:
-        result["peek_error"] = str(e)
-
-    return result
 # ─────────────────────────────────────────────────────────────────────────────
 # NITK CHATBOT — general conversation, scoped to NITK topics only
 # ─────────────────────────────────────────────────────────────────────────────
