@@ -325,7 +325,7 @@ def download_knowledge():
 
     print("Downloading knowledge from GitHub Release...")
 
-    url = "https://github.com/LK-coder-app/nitk-nav-proxy/releases/download/v1.0/knowledge.zip"
+    url = "https://github.com/LK-coder-app/nitk-nav-proxy/releases/download/v1.1/knowledge.zip"
 
     print("URL:", url)
     print("Starting requests.get()...")
@@ -398,7 +398,7 @@ def download_chroma():
 
     print("Downloading ChromaDB from GitHub Release...")
 
-    url = "https://github.com/LK-coder-app/nitk-nav-proxy/releases/download/v1.0/nitk_chroma.zip"
+    url = "https://github.com/LK-coder-app/nitk-nav-proxy/releases/download/v1.1/nitk_chroma.zip"
 
     r = requests.get(
         url,
