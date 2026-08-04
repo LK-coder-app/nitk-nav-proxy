@@ -353,12 +353,19 @@ def download_knowledge():
     print("Starting requests.get()...")
 
     try:
+        print("About to connect to GitHub...")
+
+        headers = {
+            "User-Agent": "Mozilla/5.0"
+        }
+
         r = requests.get(
             url,
-            stream=True,
-            timeout=60,
-            allow_redirects=True
+            headers=headers,
+            timeout=60
         )
+
+        print("Connected to GitHub.")
         print("requests.get() completed.")
     except Exception as e:
         print("requests.get() failed:", e)
