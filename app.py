@@ -127,6 +127,18 @@ def initialize_knowledge():
             print("knowledge.json not found.")
             download_knowledge()
             print("Returned from download_knowledge()", flush=True)
+            print("DEBUG A", flush=True)
+
+            print("Step 2: knowledge.json OK", flush=True)
+            print("DEBUG B", flush=True)
+
+            print("Step 3: Checking ChromaDB", flush=True)
+            print("DEBUG C", flush=True)
+
+            initialize_chroma()
+
+            print("DEBUG D", flush=True)
+            print("About to print Step 2", flush=True)
         else:
             print("knowledge.json found.")
 
