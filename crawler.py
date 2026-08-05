@@ -359,7 +359,6 @@ def refresh_knowledge():
 
     crawl()
 
-    build_search_index()
 
     print("Knowledge updated.")
 
@@ -367,7 +366,6 @@ if __name__ == "__main__":
 
     refresh_knowledge()
 
-    pages = search_knowledge("director")
 
     print(len(pages))
 

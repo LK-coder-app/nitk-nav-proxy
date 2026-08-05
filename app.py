@@ -22,9 +22,7 @@ from urllib.parse import quote
 from crawler import (
     refresh_knowledge,
     download_knowledge,
-    get_collection_count
 )
-from crawler import download_chroma
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from crawler import build_context
