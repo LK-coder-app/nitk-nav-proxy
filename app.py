@@ -78,15 +78,29 @@ groq_client = OpenAI(
     base_url="https://api.groq.com/openai/v1"
 )
 
+import os
+
 def _load_knowledge():
     global _chunks, _vectors
     try:
-        with open('chunks.json', encoding='utf-8') as f:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        chunks_path = os.path.join(base_dir, 'chunks.json')
+        vectors_path = os.path.join(base_dir, 'embeddings.npy')
+
+        print(f'📂 chunks.json exists: {os.path.exists(chunks_path)}')
+        print(f'📂 embeddings.npy exists: {os.path.exists(vectors_path)}')
+
+        with open(chunks_path, encoding='utf-8') as f:
             _chunks = json.load(f)
-        _vectors = np.load('embeddings.npy')
-        print(f'✅ Knowledge base loaded — {len(_chunks)} chunks')
+        _vectors = np.load(vectors_path)
+
+        print(f'✅ Knowledge base loaded — {len(_chunks)} chunks, vector shape {_vectors.shape}')
+
+        if len(_chunks) != _vectors.shape[0]:
+            print(f'⚠️ MISMATCH: {len(_chunks)} chunks but {_vectors.shape[0]} vectors — retrieval will be wrong!')
+
     except Exception as e:
-        print(f'⚠️ Could not load knowledge base: {e}')
+        print(f'❌ Could not load knowledge base: {e}')
         _chunks = []
         _vectors = None
 
@@ -107,16 +121,21 @@ def _embed_query(text):
         return None
 
 
-def _retrieve(query, top_k=5):
+def _retrieve(query, top_k=5, min_score=0.3):
     if _vectors is None or len(_chunks) == 0:
+        print('⚠️ _retrieve called but knowledge base is empty/not loaded')
         return []
     q = _embed_query(query)
     if q is None:
+        print('⚠️ Query embedding failed')
         return []
     norms  = np.linalg.norm(_vectors, axis=1) * np.linalg.norm(q) + 1e-8
     scores = _vectors @ q / norms
     top_idx = np.argsort(scores)[::-1][:top_k]
-    return [_chunks[i] for i in top_idx]
+    results = [(scores[i], _chunks[i]) for i in top_idx]
+    if results:
+        print(f'🔍 "{query[:50]}" — top score: {results[0][0]:.3f}')
+    return [c for score, c in results if score >= min_score]
 
 
 _load_knowledge()
@@ -282,9 +301,11 @@ helpfully — but ONLY about NITK and directly related topics.
 
 OUT OF SCOPE: politely decline anything unrelated to NITK, no matter how it's rephrased.
 
-Below is information retrieved from NITK's official website. Base your answer on it.
-If it doesn't cover the question, say so honestly and suggest checking nitk.ac.in —
-never invent specifics that aren't supported by the retrieved text."""
+Below is information retrieved from NITK's official website that is relevant to this
+question. Use it confidently to give a direct, complete answer — don't hedge or
+redirect to the website if the information below already answers the question. Only
+say you don't have specific information and suggest checking nitk.ac.in if the
+retrieved content genuinely does not address what was asked."""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ORS ROUTING
@@ -814,6 +835,14 @@ def debug_files():
             })
 
     return result
+
+@app.route('/knowledge-status')
+def knowledge_status():
+    return jsonify({
+        'loaded': _vectors is not None,
+        'chunkCount': len(_chunks),
+        'vectorShape': list(_vectors.shape) if _vectors is not None else None,
+    })
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8081))
