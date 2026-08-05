@@ -403,7 +403,11 @@ def download_knowledge():
 
     os.remove("knowledge.zip")
 
-    print("knowledge.json extracted.")
+    print("knowledge.json extracted.", flush=True)
+
+    print("Leaving download_knowledge()", flush=True)
+
+    return
 
 
 
