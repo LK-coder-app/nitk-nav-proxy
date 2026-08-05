@@ -126,6 +126,7 @@ def initialize_knowledge():
         if not os.path.exists("knowledge.json"):
             print("knowledge.json not found.")
             download_knowledge()
+            print("Returned from download_knowledge()", flush=True)
         else:
             print("knowledge.json found.")
 
