@@ -20,7 +20,6 @@ from openai import OpenAI
 import re
 from urllib.parse import quote
 from crawler import (
-    build_search_index,
     refresh_knowledge,
     download_knowledge,
     get_collection_count
