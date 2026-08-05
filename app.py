@@ -182,35 +182,26 @@ def initialize_knowledge():
         print("=" * 60)
         print("Initializing NITK Knowledge Base...")
 
-        if not os.path.exists("knowledge.json"):
-            print("knowledge.json not found.")
-            download_knowledge()
-        else:
-            print("knowledge.json found.")
+        if not os.path.exists("chunks.json"):
+            raise FileNotFoundError("chunks.json not found.")
 
-        if os.path.exists("knowledge.json"):
-            knowledge_ready = True
-            print("Knowledge initialization completed.")
-        else:
-            print("Failed to initialize knowledge base.")
+        if not os.path.exists("embeddings.npy"):
+            raise FileNotFoundError("embeddings.npy not found.")
 
+        knowledge_ready = True
+
+        print("Knowledge initialization completed.")
         print("=" * 60)
 
     except Exception as e:
         print("Knowledge initialization failed:")
         print(e)
 
-    threading.Thread(
-        target=auto_refresh,
-        daemon=True
-    ).start()
-
 
 threading.Thread(
     target=initialize_knowledge,
     daemon=True
 ).start()
-# Initialize knowledge base when the app is imported by Gunicorn
 
 
 def search_nitk_page(query):
@@ -778,15 +769,6 @@ def refresh():
 
 from crawler import load_knowledge
 
-@app.route("/knowledge-status")
-def knowledge_status():
-
-    pages = load_knowledge()
-
-    return jsonify({
-        "ready": len(pages) > 0,
-        "pages": len(pages)
-    })
 
 @app.route("/debug-db")
 def debug_db():
