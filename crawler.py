@@ -17,29 +17,6 @@ HEADERS = {
 }
 
 
-import os
-
-print("=" * 60)
-print("DEBUG INFORMATION")
-print("Current working directory:", os.getcwd())
-print("Chroma absolute path:", os.path.abspath("nitk_chroma"))
-print("SQLite exists:", os.path.exists("nitk_chroma/chroma.sqlite3"))
-print("=" * 60)
-
-
-print("=" * 60)
-print("Collection object:", collection)
-
-if collection is not None:
-    print("Count:", collection.count())
-    print("Peek:")
-    print(collection.peek(limit=3))
-else:
-    print("Collection not initialized yet.")
-
-print("=" * 60)
-# ------------------------------
-
 def clean_text(text):
     return " ".join(text.split())
 
@@ -58,14 +35,6 @@ def split_into_chunks(text, chunk_size=1200, overlap=250):
         start += chunk_size - overlap
 
     return chunks
-
-
-def build_search_index():
-    print("Using ChromaDB search index.")
-    print("Collection count:", collection.count())
-
-    if collection.count() == 0:
-        raise RuntimeError("ChromaDB is empty!")
 
 
 
@@ -321,7 +290,6 @@ def download_knowledge():
 
 def search_knowledge(query, top_k=10):
 
-    print("Collection count:", collection.count())
 
     results = collection.query(
         query_texts=[query],
