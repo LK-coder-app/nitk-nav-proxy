@@ -1,13 +1,8 @@
 .env
 
 knowledge.json
-knowledge.zip
-
-nitk_chroma/
 
 __pycache__/
 *.pyc
 
 test.py
-
-nitk_chroma.zip

@@ -7,8 +7,6 @@ import re
 import requests
 from bs4 import BeautifulSoup
 import zipfile
-import chromadb
-from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
 
 BASE_URL = "https://www.nitk.ac.in/"
 OUTPUT_FILE = "knowledge.json"
@@ -17,9 +15,7 @@ MAX_PAGES = 2500
 HEADERS = {
     "User-Agent": "Mozilla/5.0"
 }
-# ---------- ChromaDB ----------
-client = None
-collection = None
+
 
 import os
 
@@ -30,7 +26,6 @@ print("Chroma absolute path:", os.path.abspath("nitk_chroma"))
 print("SQLite exists:", os.path.exists("nitk_chroma/chroma.sqlite3"))
 print("=" * 60)
 
-embedding_function = ONNXMiniLM_L6_V2()
 
 print("=" * 60)
 print("Collection object:", collection)
@@ -44,24 +39,6 @@ else:
 
 print("=" * 60)
 # ------------------------------
-def initialize_chroma():
-    global client, collection
-
-    client = chromadb.PersistentClient(path="nitk_chroma")
-
-    try:
-        collection = client.get_collection(
-            name="nitk",
-            embedding_function=embedding_function
-        )
-
-        print("Collection initialized")
-        print("Collection count:", collection.count())
-
-    except Exception as e:
-        print("Chroma collection not found.")
-        print(e)
-        collection = None
 
 def clean_text(text):
     return " ".join(text.split())
@@ -90,20 +67,6 @@ def build_search_index():
     if collection.count() == 0:
         raise RuntimeError("ChromaDB is empty!")
 
-def get_collection_count():
-    try:
-        client = chromadb.PersistentClient(path="nitk_chroma")
-
-        collection = client.get_collection(
-            name="nitk",
-            embedding_function=embedding_function
-        )
-
-        return collection.count()
-
-    except Exception as e:
-        print("get_collection_count() error:", e)
-        return 0
 
 
 def extract_text(html):
@@ -348,124 +311,12 @@ def load_knowledge():
 def download_knowledge():
 
     if os.path.exists("knowledge.json"):
-        print("knowledge.json already exists.")
+        print("knowledge.json found.")
         return
 
-    url = "https://github.com/LK-coder-app/nitk-nav-proxy/releases/download/v1.0/knowledge.zip"
-
-    print("Downloading:", url)
-
-    headers = {
-        "User-Agent": "Mozilla/5.0"
-    }
-
-    with requests.get(
-        url,
-        headers=headers,
-        stream=True,
-        allow_redirects=True,
-        timeout=(30, 300)
-    ) as r:
-
-        print("Connected to GitHub")
-        print("Status:", r.status_code)
-        print("Final URL:", r.url)
-        print("Content-Length:", r.headers.get("Content-Length"))
-
-        r.raise_for_status()
-
-        downloaded = 0
-
-        with open("knowledge.zip", "wb") as f:
-
-            for chunk in r.iter_content(chunk_size=1024 * 1024):
-
-                if not chunk:
-                    continue
-
-                f.write(chunk)
-
-                downloaded += len(chunk)
-
-                print(
-                    f"Downloaded {downloaded / 1024 / 1024:.2f} MB",
-                    flush=True
-                )
-
-    print("Finished downloading file", flush=True)
-
-    print("Starting extraction...", flush=True)
-
-    with zipfile.ZipFile("knowledge.zip") as z:
-        z.extractall(".")
-
-    print("Extraction finished", flush=True)
-
-    os.remove("knowledge.zip")
-
-    print("knowledge.json extracted.", flush=True)
-
-    print("Leaving download_knowledge()", flush=True)
-
-    return
-
-
-
-def download_chroma():
-
-    if get_collection_count() > 0:
-        print("ChromaDB already populated.")
-        return
-
-    # Remove empty folder if it exists
-    if os.path.exists("nitk_chroma"):
-        import shutil
-        shutil.rmtree("nitk_chroma")
-
-    print("Downloading ChromaDB from GitHub Release...")
-
-    url = "https://github.com/LK-coder-app/nitk-nav-proxy/releases/download/v1.1/nitk_chroma.zip"
-
-    r = requests.get(
-        url,
-        stream=True,
-        timeout=600,
-        allow_redirects=True
+    raise FileNotFoundError(
+        "knowledge.json is missing. Run the crawler first."
     )
-
-    print("HTTP Status:", r.status_code)
-
-    r.raise_for_status()
-
-    with open("nitk_chroma.zip", "wb") as f:
-        for chunk in r.iter_content(1024 * 1024):
-            if chunk:
-                f.write(chunk)
-
-    print("Extracting ChromaDB...")
-
-    with zipfile.ZipFile("nitk_chroma.zip") as z:
-        z.extractall(".")
-
-    print("Listing extracted files...")
-
-    for root, dirs, files in os.walk("nitk_chroma"):
-        print(root)
-        for file in files:
-            print("   ", file)
-
-    os.remove("nitk_chroma.zip")
-
-    print("Checking extracted ChromaDB...")
-
-    print("SQLite exists:", os.path.exists("nitk_chroma/chroma.sqlite3"))
-
-    if os.path.exists("nitk_chroma/chroma.sqlite3"):
-        print("SQLite size:", os.path.getsize("nitk_chroma/chroma.sqlite3"))
-
-    print("Collection count after extraction:", get_collection_count())
-
-    print("ChromaDB download complete.")
 
 
 def search_knowledge(query, top_k=10):
