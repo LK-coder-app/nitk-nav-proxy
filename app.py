@@ -30,7 +30,6 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from crawler import build_context
 from dotenv import load_dotenv
-import chromadb
 
 load_dotenv()
 
@@ -38,6 +37,9 @@ app = Flask(__name__)
 CORS(app)
 knowledge_ready = False
 
+# ── NITK Knowledge Base — simple in-memory RAG, no database needed ────────
+_chunks  = []      # [{text, title, url}, ...]
+_vectors = None    # numpy array, shape (n_chunks, embed_dim)
 
 # ── Environment variables (set these in Render dashboard) ─────────────────
 ORS_KEY        = os.environ.get('ORS_KEY', '')
@@ -79,6 +81,51 @@ groq_client = OpenAI(
     base_url="https://api.groq.com/openai/v1"
 )
 
+def _load_knowledge():
+    global _chunks, _vectors
+    try:
+        with open('chunks.json', encoding='utf-8') as f:
+            _chunks = json.load(f)
+        _vectors = np.load('embeddings.npy')
+        print(f'✅ Knowledge base loaded — {len(_chunks)} chunks')
+    except Exception as e:
+        print(f'⚠️ Could not load knowledge base: {e}')
+        _chunks = []
+        _vectors = None
+
+
+def _embed_query(text):
+    try:
+        url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent'
+        body = json.dumps({"content": {"parts": [{"text": text}]}}).encode()
+        req = urllib.request.Request(
+            url, data=body, method='POST',
+            headers={'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY}
+        )
+        with urllib.request.urlopen(req, timeout=20) as r:
+            result = json.loads(r.read().decode())
+        return np.array(result['embedding']['values'], dtype=np.float32)
+    except Exception as e:
+        print(f'⚠️ Query embedding failed: {e}')
+        return None
+
+
+def _retrieve(query, top_k=5):
+    if _vectors is None or len(_chunks) == 0:
+        return []
+    q = _embed_query(query)
+    if q is None:
+        return []
+    norms  = np.linalg.norm(_vectors, axis=1) * np.linalg.norm(q) + 1e-8
+    scores = _vectors @ q / norms
+    top_idx = np.argsort(scores)[::-1][:top_k]
+    return [_chunks[i] for i in top_idx]
+
+
+_load_knowledge()
+
+
+
 def _send_twilio_sms(phone_e164, body_text):
     payload = urllib.parse.urlencode({
         'To':   phone_e164,
@@ -114,74 +161,22 @@ def auto_refresh():
         
 def initialize_knowledge():
     global knowledge_ready
-    global client, collection
 
     try:
         print("=" * 60)
         print("Initializing NITK Knowledge Base...")
 
-        print("Step 1: Checking knowledge.json")
-
-        # Step 1 - Download knowledge.json only if missing
         if not os.path.exists("knowledge.json"):
             print("knowledge.json not found.")
             download_knowledge()
-            print("Returned from download_knowledge()", flush=True)
-            print("DEBUG A", flush=True)
-
-            print("Step 2: knowledge.json OK", flush=True)
-            print("DEBUG B", flush=True)
-
-            print("Step 3: Checking ChromaDB", flush=True)
-            print("DEBUG C", flush=True)
-
-            initialize_chroma()
-
-            print("DEBUG D", flush=True)
-            print("About to print Step 2", flush=True)
         else:
             print("knowledge.json found.")
 
-        print("Step 2: knowledge.json OK")
-        # Step 2 - Check ChromaDB
-        print("Step 3: Checking ChromaDB")
-        initialize_chroma()
-
-        if collection is None:
-            count = 0
-        else:
-            count = collection.count()
-
-        print(f"Collection count: {count}")
-
-        print(f"Collection count: {count}")
-
-        if count == 0:
-            print("Downloading ChromaDB...")
-            download_chroma()
-
-            print("\nReopening ChromaDB...")
-
-
-            client = chromadb.PersistentClient(path="nitk_chroma")
-
-            print("Collections after reopening:")
-            print(client.list_collections())
-
-            collection = client.get_collection(
-                name="nitk",
-                embedding_function=embedding_function
-            )
-
-            count = collection.count()
-
-            print(f"Collection count after reopening: {count}")
-
-        if count > 0:
+        if os.path.exists("knowledge.json"):
             knowledge_ready = True
             print("Knowledge initialization completed.")
         else:
-            print("⚠️ ChromaDB still empty after download attempt — check logs above.")
+            print("Failed to initialize knowledge base.")
 
         print("=" * 60)
 
@@ -193,6 +188,7 @@ def initialize_knowledge():
         target=auto_refresh,
         daemon=True
     ).start()
+
 
 threading.Thread(
     target=initialize_knowledge,
@@ -289,9 +285,9 @@ helpfully — but ONLY about NITK and directly related topics.
 
 OUT OF SCOPE: politely decline anything unrelated to NITK, no matter how it's rephrased.
 
-Below is information retrieved live from NITK's official website. Base your answer on
-it. If it doesn't cover the question, say so honestly and suggest checking nitk.ac.in
-directly — never invent specifics that aren't supported by the retrieved text."""
+Below is information retrieved from NITK's official website. Base your answer on it.
+If it doesn't cover the question, say so honestly and suggest checking nitk.ac.in —
+never invent specifics that aren't supported by the retrieved text."""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ORS ROUTING
@@ -544,98 +540,45 @@ def nl_destination():
 
 @app.route('/nitk-chat', methods=['POST'])
 def nitk_chat():
-    global knowledge_ready
-
-    if not knowledge_ready:
-        return jsonify({
-            "reply": "The NITK knowledge base is still loading. Please try again in a minute."
-        })
     try:
-        data = request.get_json(force=True)
-
-        message = (data.get("message") or "").strip()
-
-        history = data.get("history", [])
-
+        data    = request.get_json(force=True)
+        message = (data.get('message') or '').strip()
+        history = data.get('history', [])
         if not message:
-            return jsonify({"reply": ""})
+            return jsonify({'reply': ''})
 
-        context = build_context(message)
+        relevant = _retrieve(message, top_k=5)
+        context_text = '\n\n'.join(
+            f"[Source: {c['title']} — {c['url']}]\n{c['text']}" for c in relevant
+        ) if relevant else "(No specific match found in the knowledge base.)"
 
-        print("=" * 50)
-        print("Message:", message)
-        print("Context received:", len(context))
-        print(context[:1000])
-        
-        if not context.strip():
-            return jsonify({
-                "reply": "I couldn't find that information in the available NITK knowledge base."
-            })
-        prompt = f"""
-        You are the official AI Assistant for NITK Surathkal.
+        system_prompt = f"{NITK_CHAT_BASE_PROMPT}\n\n──────────\n{context_text}\n──────────"
 
-        You must answer ONLY from the retrieved knowledge below.
+        contents = [{"role": t.get('role', 'user'), "parts": [{"text": t.get('text', '')}]}
+                    for t in history]
+        contents.append({"role": "user", "parts": [{"text": message}]})
 
-        IMPORTANT RULES
-
-        1. Never invent facts.
-
-        2. Never use outside knowledge.
-
-        3. Combine information from multiple retrieved pages into one complete answer.
-
-        4. If the answer appears in a table, summarize it naturally.
-
-        5. If multiple pages mention different parts of the answer, merge them.
-
-        6. Mention the relevant department or page title whenever appropriate.
-
-        7. If the answer is not present in the retrieved knowledge, reply exactly:
-
-        "I couldn't find that information in the available NITK knowledge base."
-
-        8. Keep answers clear, well-structured, and concise.
-
-        --------------------------
-        NITK KNOWLEDGE
-
-        {context}
-
-        --------------------------
-
-        User Question:
-
-        {message}
-        """
-
-        response = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are the official AI Assistant for NITK Surathkal."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            temperature=0.3,
+        gemini_url = f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent'
+        body = json.dumps({
+            "system_instruction": {"parts": [{"text": system_prompt}]},
+            "contents": contents,
+        }).encode()
+        req = urllib.request.Request(
+            gemini_url, data=body, method='POST',
+            headers={'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY}
         )
+        with urllib.request.urlopen(req, timeout=25) as r:
+            result = json.loads(r.read().decode())
 
-        reply = response.choices[0].message.content
+        if not result.get('candidates'):
+            return jsonify({'reply': "Sorry, I couldn't process that. Please try again."})
 
-        return jsonify({
-            "reply": reply.strip()
-        })
+        reply_text = result['candidates'][0]['content']['parts'][0]['text']
+        return jsonify({'reply': reply_text.strip()})
 
     except Exception as e:
-
-        print("CHAT ERROR:", e)
-
-        return jsonify({
-            "reply": "Sorry, something went wrong."
-        }), 500
+        print(f'❌ NITK chat error: {e}')
+        return jsonify({'reply': "Sorry, something went wrong. Please try again."}), 500
 
 
 # Build the knowledge base once at startup, in the background, so it's not
